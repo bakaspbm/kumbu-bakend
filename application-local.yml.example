@@ -1,0 +1,6 @@
+# Copie para application-local.yml (não commitar credenciais reais)
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/kumbu_db
+    username: postgres
+    password: "SUA_SENHA_AQUI"

@@ -1,0 +1,21 @@
+spring:
+  config:
+    activate:
+      on-profile: prod
+  jpa:
+    show-sql: false
+
+kumbu:
+  jwt:
+    secret: ${KUMBU_JWT_SECRET}  # obrigatório em produção
+
+logging:
+  level:
+    com.kumbu: INFO
+    org.springframework.security: WARN
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

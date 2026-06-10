@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: kumbu-postgres
+    environment:
+      POSTGRES_DB: kumbu
+      POSTGRES_USER: kumbu
+      POSTGRES_PASSWORD: kumbu_secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - kumbu_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kumbu -d kumbu"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    container_name: kumbu-api
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/kumbu
+      SPRING_DATASOURCE_USERNAME: kumbu
+      SPRING_DATASOURCE_PASSWORD: kumbu_secret
+      KUMBU_JWT_SECRET: change-me-in-production-use-at-least-256-bits-secret-key-here
+      KUMBU_CORS_ORIGINS: http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001
+      SPRING_PROFILES_ACTIVE: default
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - kumbu_uploads:/app/uploads
+
+volumes:
+  kumbu_pg_data:
+  kumbu_uploads:

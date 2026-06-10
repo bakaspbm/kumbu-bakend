@@ -1,0 +1,102 @@
+spring:
+  application:
+    name: kumbu-backend
+  profiles:
+    active: dev,local
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/kumbu_db}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 20MB
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+  mail:
+    host: ${SPRING_MAIL_HOST:}
+    port: ${SPRING_MAIL_PORT:587}
+    username: ${SPRING_MAIL_USERNAME:}
+    password: ${SPRING_MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+server:
+  port: 8080
+  error:
+    include-message: always
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+kumbu:
+  jwt:
+    secret: ${KUMBU_JWT_SECRET:change-me-in-production-use-at-least-256-bits-secret-key-here}
+    access-token-minutes: 60
+    refresh-token-days: 30
+  cors:
+    allowed-origins: ${KUMBU_CORS_ORIGINS:http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001}
+    allowed-origin-patterns: http://localhost:*,http://127.0.0.1:*
+  storage:
+    base-path: ${KUMBU_STORAGE_PATH:./uploads}
+    public-base-url: ${KUMBU_STORAGE_URL:http://localhost:8080/files}
+    private-path: ${KUMBU_STORAGE_PRIVATE_PATH:./private-uploads}
+  admin:
+    bootstrap-email: ${KUMBU_ADMIN_EMAIL:admin@kumbu.app}
+    bootstrap-password: ${KUMBU_ADMIN_PASSWORD:Admin123!}
+  monetization:
+    company-name: ${KUMBU_COMPANY_NAME:Kumbu Lda}
+    multicaixa-phone: ${KUMBU_MULTICAIXA_PHONE:+244 9XX XXX XXX}
+    bai-account: ${KUMBU_BAI_ACCOUNT:}
+    bai-iban: ${KUMBU_BAI_IBAN:}
+    bfa-account: ${KUMBU_BFA_ACCOUNT:}
+    bfa-iban: ${KUMBU_BFA_IBAN:}
+    bic-account: ${KUMBU_BIC_ACCOUNT:}
+    bic-iban: ${KUMBU_BIC_IBAN:}
+    emis-entity: ${KUMBU_EMIS_ENTITY:KUMBU}
+  app:
+    public-url: ${KUMBU_PUBLIC_URL:http://localhost:3000}
+  mail:
+    from: ${KUMBU_MAIL_FROM:noreply@kumbu.app}
+    enabled: ${KUMBU_MAIL_ENABLED:false}
+  sms:
+    provider: ${KUMBU_SMS_PROVIDER:log}
+    twilio-account-sid: ${TWILIO_ACCOUNT_SID:}
+    twilio-auth-token: ${TWILIO_AUTH_TOKEN:}
+    twilio-from-number: ${TWILIO_FROM_NUMBER:}
+    africas-talking-username: ${AFRICASTALKING_USERNAME:}
+    africas-talking-api-key: ${AFRICASTALKING_API_KEY:}
+    africas-talking-from: ${AFRICASTALKING_FROM:KUMBU}
+  oauth:
+    google-client-id: ${KUMBU_GOOGLE_CLIENT_ID:}
+    google-client-secret: ${KUMBU_GOOGLE_CLIENT_SECRET:}
+    facebook-app-id: ${KUMBU_FACEBOOK_APP_ID:}
+    facebook-app-secret: ${KUMBU_FACEBOOK_APP_SECRET:}
+    facebook-trust-client-profile: ${KUMBU_FACEBOOK_TRUST_CLIENT_PROFILE:false}
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  level:
+    com.kumbu: INFO
+    org.springframework.security: WARN
