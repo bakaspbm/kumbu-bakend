@@ -272,5 +272,40 @@ public class OAuthVerifier {
         return null;
     }
 
+    public String exchangeFacebookCode(String code, String redirectUri) {
+        String appId = properties.getOauth().getFacebookAppId();
+        String appSecret = properties.getOauth().getFacebookAppSecret();
+        if (appId == null || appId.isBlank() || appSecret == null || appSecret.isBlank()) {
+            throw ApiException.badRequest("Facebook OAuth não configurado no servidor.");
+        }
+        String body = "client_id=" + URLEncoder.encode(appId.trim(), StandardCharsets.UTF_8)
+                + "&client_secret=" + URLEncoder.encode(appSecret.trim(), StandardCharsets.UTF_8)
+                + "&redirect_uri=" + URLEncoder.encode(redirectUri.trim(), StandardCharsets.UTF_8)
+                + "&code=" + URLEncoder.encode(code.trim(), StandardCharsets.UTF_8);
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create("https://graph.facebook.com/" + GRAPH_VERSION + "/oauth/access_token"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .timeout(GRAPH_TIMEOUT)
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .build();
+            HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw ApiException.badRequest("Não foi possível validar login Facebook.");
+            }
+            JsonNode json = objectMapper.readTree(response.body());
+            String accessToken = json.path("access_token").asText(null);
+            if (accessToken == null || accessToken.isBlank()) {
+                throw ApiException.badRequest("Resposta Facebook inválida.");
+            }
+            return accessToken;
+        } catch (ApiException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            log.warn("[OAuth] Facebook code exchange failed: {}", ex.getMessage());
+            throw ApiException.badRequest("Falha ao validar login Facebook.");
+        }
+    }
+
     public record OAuthUserInfo(String email, String name, String photoUrl) {}
 }

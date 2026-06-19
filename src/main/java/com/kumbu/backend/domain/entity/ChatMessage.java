@@ -44,6 +44,9 @@ public class ChatMessage {
     @Builder.Default
     private String messageKind = "text";
 
+    @Column(name = "attachment_url")
+    private String attachmentUrl;
+
     @PrePersist
     void onCreate() {
         if (createdAt == null) createdAt = Instant.now();

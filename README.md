@@ -25,12 +25,12 @@ Os frontends usam o backend Spring Boot **por defeito**. Supabase só activo se 
 cd Kumbu_bakend
 docker compose up -d
 
-# Admin (porta 3000)
+# Admin (porta 3001)
 cd kumbu-admin
 # .env.local → NEXT_PUBLIC_KUMBU_API_URL=http://localhost:8080/api/v1
 npm run dev
 
-# Site (porta 3001)
+# Site (porta 3000)
 cd Kumbu_site_user
 # .env.local → NEXT_PUBLIC_KUMBU_API_URL=http://localhost:8080/api/v1
 npm run dev

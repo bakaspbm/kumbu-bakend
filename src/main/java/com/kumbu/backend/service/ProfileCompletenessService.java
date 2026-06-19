@@ -34,10 +34,15 @@ public class ProfileCompletenessService {
     }
 
     public void assertCanPublish(User user) {
-        if (!user.isActive()) {
+        if (user.getDeletedAt() != null) {
             throw ProfileIncompleteException.of(
                     List.of("account"),
-                    "Conta indisponível para publicar anúncios");
+                    "Esta conta foi desactivada. Contacte o suporte Kumbú para mais informações.");
+        }
+        if (user.isBanned()) {
+            throw ProfileIncompleteException.of(
+                    List.of("account"),
+                    "A sua conta tem uma restrição activa e não pode publicar anúncios. Contacte o suporte Kumbú.");
         }
         List<String> missing = findMissingFields(user);
         if (!missing.isEmpty()) {

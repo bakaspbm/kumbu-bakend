@@ -30,7 +30,6 @@ public class UserPrincipal implements UserDetails {
         authorities.add(new SimpleGrantedAuthority("ROLE_USER"));
         if (adminRole != null) {
             authorities.add(new SimpleGrantedAuthority("ROLE_" + adminRole.name()));
-            authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
         }
     }
 
@@ -70,6 +69,11 @@ public class UserPrincipal implements UserDetails {
     }
 
     public boolean isAdmin() {
-        return authorities.stream().anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+        return authorities.stream().anyMatch(a -> {
+            String role = a.getAuthority();
+            return "ROLE_SUPER_ADMIN".equals(role)
+                    || "ROLE_ADMIN".equals(role)
+                    || "ROLE_SUPPORT".equals(role);
+        });
     }
 }

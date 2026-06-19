@@ -34,6 +34,9 @@ public class RefreshToken {
     @Column(name = "revoked_at")
     private Instant revokedAt;
 
+    @Column(name = "family_id")
+    private UUID familyId;
+
     @PrePersist
     void onCreate() {
         if (createdAt == null) createdAt = Instant.now();

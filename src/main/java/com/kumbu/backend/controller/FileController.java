@@ -80,5 +80,19 @@ public class FileController {
 
     }
 
+
+
+    @PostMapping("/chat")
+
+    public Map<String, String> uploadChatAttachment(@RequestParam("file") @NotNull MultipartFile file) {
+
+        UUID userId = securityUtils.currentUserId();
+
+        String url = storageService.storeChatAttachment(userId, file);
+
+        return Map.of("url", url);
+
+    }
+
 }
 

@@ -1,5 +1,6 @@
 package com.kumbu.backend.service;
 
+import com.kumbu.backend.config.CacheNames;
 import com.kumbu.backend.domain.entity.CatalogCategory;
 import com.kumbu.backend.domain.entity.CatalogProduct;
 import com.kumbu.backend.domain.entity.User;
@@ -17,6 +18,9 @@ import com.kumbu.backend.domain.entity.CatalogSubcategory;
 import com.kumbu.backend.repository.CatalogProductRepository;
 import com.kumbu.backend.repository.UserRepository;
 import com.kumbu.backend.security.SecurityUtils;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -42,6 +46,7 @@ public class CatalogService {
     private final SecurityUtils securityUtils;
     private final RecommendationService recommendationService;
     private final ProfileCompletenessService profileCompletenessService;
+    private final MonetizationAdminConfigService monetizationConfigService;
 
     public CatalogService(CatalogCategoryRepository categoryRepository,
                           CatalogSubcategoryRepository subcategoryRepository,
@@ -49,7 +54,8 @@ public class CatalogService {
                           UserRepository userRepository,
                           SecurityUtils securityUtils,
                           @Lazy RecommendationService recommendationService,
-                          ProfileCompletenessService profileCompletenessService) {
+                          ProfileCompletenessService profileCompletenessService,
+                          MonetizationAdminConfigService monetizationConfigService) {
         this.categoryRepository = categoryRepository;
         this.subcategoryRepository = subcategoryRepository;
         this.productRepository = productRepository;
@@ -57,6 +63,7 @@ public class CatalogService {
         this.securityUtils = securityUtils;
         this.recommendationService = recommendationService;
         this.profileCompletenessService = profileCompletenessService;
+        this.monetizationConfigService = monetizationConfigService;
     }
 
     @Transactional(readOnly = true)
@@ -78,6 +85,7 @@ public class CatalogService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(value = CacheNames.CATALOG_CATEGORIES, key = "'all'")
     public List<CategoryResponse> listCategories() {
         return categoryRepository.findAllByOrderBySortOrderAsc().stream()
                 .map(this::toCategory)
@@ -85,6 +93,7 @@ public class CatalogService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(value = CacheNames.CATALOG_SUBCATEGORIES, key = "#categoryId")
     public List<SubcategoryResponse> listSubcategories(String categoryId) {
         return subcategoryRepository.findByCategoryIdOrderBySortOrderAsc(categoryId).stream()
                 .map(this::toSubcategory)
@@ -92,6 +101,9 @@ public class CatalogService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(
+            value = CacheNames.CATALOG_SEARCH,
+            key = "T(java.util.Objects).hash(#categoryId, #subcategoryId, #sellerId, #featured, #sortMode, #query, #page, #size)")
     public PageResponse<ListingResponse> search(
             String categoryId,
             String subcategoryId,
@@ -115,18 +127,41 @@ public class CatalogService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(value = CacheNames.CATALOG_FEATURED, key = "#page + ':' + #size")
     public PageResponse<ListingResponse> listFeatured(int page, int size) {
-        Page<CatalogProduct> result = productRepository.findByDeletedAtIsNullAndFeaturedTrue(
+        Page<CatalogProduct> result = productRepository.findPublicFeatured(
                 PageRequest.of(page, size, Sort.by(Sort.Order.desc("boostScore"))
                         .and(Sort.by("sortOrder").ascending())));
         return toPage(result, page, size);
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(value = CacheNames.CATALOG_LISTING, key = "#id + ':' + @securityUtils.cacheUserKey()")
     public ListingResponse getListing(String id) {
         CatalogProduct product = productRepository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> ApiException.notFound("Anúncio não encontrado"));
+        assertPubliclyVisible(product, currentUserIdOrNull());
         return toListing(product, currentFavorites());
+    }
+
+    private UUID currentUserIdOrNull() {
+        try {
+            return securityUtils.currentUserId();
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private void assertPubliclyVisible(CatalogProduct product, UUID viewerId) {
+        if (viewerId != null && viewerId.equals(product.getSellerId())) {
+            return;
+        }
+        if (product.isOutOfStock()) {
+            throw ApiException.notFound("Anúncio não disponível");
+        }
+        if (product.getJobListingStatus() != null && !"active".equals(product.getJobListingStatus())) {
+            throw ApiException.notFound("Anúncio não disponível");
+        }
     }
 
     @Transactional
@@ -164,21 +199,32 @@ public class CatalogService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(value = CacheNames.RECOMMENDATIONS, key = "'listing-rec:' + #productId + ':' + #limit")
     public Map<String, Object> getListingRecommendations(String productId, int limit) {
         return recommendationService.getProductRecommendations(productId, limit);
     }
 
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(value = CacheNames.CATALOG_SEARCH, allEntries = true),
+            @CacheEvict(value = CacheNames.CATALOG_FEATURED, allEntries = true),
+            @CacheEvict(value = CacheNames.CATALOG_LISTING, allEntries = true),
+            @CacheEvict(value = CacheNames.RECOMMENDATIONS, allEntries = true),
+            @CacheEvict(value = CacheNames.JOBS, allEntries = true),
+            @CacheEvict(value = CacheNames.ADMIN_STATS, allEntries = true)
+    })
     public ListingResponse createListing(CreateListingRequest request) {
         UUID sellerId = securityUtils.currentUserId();
         User seller = userRepository.findById(sellerId)
                 .orElseThrow(() -> ApiException.notFound("Utilizador não encontrado"));
         profileCompletenessService.assertCanPublish(seller);
 
-        long currentListings = productRepository.findBySellerIdAndDeletedAtIsNullOrderByCreatedAtDesc(sellerId).size();
-        if (currentListings >= seller.getMaxListings()) {
-            throw ApiException.badRequest("Limite de anúncios atingido (" + seller.getMaxListings()
-                    + "). Faça upgrade para VIP para publicar mais.");
+        if (monetizationConfigService.getSettings().isChargingEnabled()) {
+            long currentListings = productRepository.findBySellerIdAndDeletedAtIsNullOrderByCreatedAtDesc(sellerId).size();
+            if (currentListings >= seller.getMaxListings()) {
+                throw ApiException.badRequest("Limite de anúncios atingido (" + seller.getMaxListings()
+                        + "). Faça upgrade para VIP para publicar mais.");
+            }
         }
 
         String id = "prd_" + System.currentTimeMillis();
@@ -215,6 +261,14 @@ public class CatalogService {
     }
 
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(value = CacheNames.CATALOG_SEARCH, allEntries = true),
+            @CacheEvict(value = CacheNames.CATALOG_FEATURED, allEntries = true),
+            @CacheEvict(value = CacheNames.CATALOG_LISTING, allEntries = true),
+            @CacheEvict(value = CacheNames.RECOMMENDATIONS, allEntries = true),
+            @CacheEvict(value = CacheNames.JOBS, allEntries = true),
+            @CacheEvict(value = CacheNames.ADMIN_STATS, allEntries = true)
+    })
     public void deleteMyListing(String productId) {
         UUID sellerId = securityUtils.currentUserId();
         CatalogProduct product = productRepository.findById(productId)
@@ -225,6 +279,14 @@ public class CatalogService {
     }
 
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(value = CacheNames.CATALOG_SEARCH, allEntries = true),
+            @CacheEvict(value = CacheNames.CATALOG_FEATURED, allEntries = true),
+            @CacheEvict(value = CacheNames.CATALOG_LISTING, allEntries = true),
+            @CacheEvict(value = CacheNames.RECOMMENDATIONS, allEntries = true),
+            @CacheEvict(value = CacheNames.JOBS, allEntries = true),
+            @CacheEvict(value = CacheNames.ADMIN_STATS, allEntries = true)
+    })
     public ListingResponse updateMyListing(String productId, UpdateListingRequest request) {
         UUID sellerId = securityUtils.currentUserId();
         CatalogProduct product = productRepository.findByIdAndDeletedAtIsNull(productId)
@@ -321,9 +383,11 @@ public class CatalogService {
                 .viewCount(p.getViewCount())
                 .featured(p.isFeatured())
                 .outOfStock(p.isOutOfStock())
+                .jobListingStatus(p.getJobListingStatus())
                 .sellerId(p.getSellerId())
                 .sellerName(seller != null ? seller.getDisplayName() : null)
                 .sellerPhotoUrl(seller != null ? seller.getPhotoUrl() : null)
+                .sellerVerified(seller != null && seller.isSellerVerified())
                 .createdAt(p.getCreatedAt())
                 .propertyMeta(p.getPropertyMeta())
                 .jobMeta(p.getJobMeta())

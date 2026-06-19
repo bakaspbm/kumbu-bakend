@@ -32,6 +32,9 @@ public interface ConversationRepository extends JpaRepository<Conversation, UUID
 
     Optional<Conversation> findByBuyerIdAndConversationType(UUID buyerId, ConversationType conversationType);
 
+    Optional<Conversation> findByGuestAccessTokenAndConversationType(
+            String guestAccessToken, ConversationType conversationType);
+
     Page<Conversation> findByConversationTypeAndSupportStatusOrderByUpdatedAtDesc(
             ConversationType conversationType,
             com.kumbu.backend.domain.enums.SupportStatus supportStatus,

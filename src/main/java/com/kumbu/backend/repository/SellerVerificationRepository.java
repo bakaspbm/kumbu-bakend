@@ -16,6 +16,8 @@ public interface SellerVerificationRepository extends JpaRepository<SellerVerifi
 
     Optional<SellerVerification> findFirstByUserIdOrderByCreatedAtDesc(UUID userId);
 
+    Optional<SellerVerification> findFirstByUserIdAndTierOrderByCreatedAtDesc(UUID userId, String tier);
+
     Page<SellerVerification> findByTierOrderByCreatedAtDesc(String tier, Pageable pageable);
 
     Page<SellerVerification> findByTierAndStatusOrderByCreatedAtDesc(String tier, String status, Pageable pageable);

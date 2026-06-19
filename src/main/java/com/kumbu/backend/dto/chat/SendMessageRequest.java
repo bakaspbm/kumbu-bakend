@@ -7,7 +7,9 @@ import lombok.Data;
 @Data
 public class SendMessageRequest {
 
-    @NotBlank(message = "Mensagem é obrigatória")
-    @Size(min = 1, max = 4000, message = "Mensagem deve ter entre 1 e 4000 caracteres")
+    @Size(max = 4000, message = "Mensagem demasiado longa")
     private String body;
+
+    @Size(max = 512)
+    private String attachmentUrl;
 }

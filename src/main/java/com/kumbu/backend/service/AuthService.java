@@ -4,7 +4,6 @@ import com.kumbu.backend.config.KumbuProperties;
 import com.kumbu.backend.domain.entity.AdminUser;
 import com.kumbu.backend.domain.entity.RefreshToken;
 import com.kumbu.backend.domain.entity.User;
-import com.kumbu.backend.domain.enums.AdminRole;
 import com.kumbu.backend.domain.enums.SignupAuthMethod;
 import com.kumbu.backend.domain.enums.SignupSource;
 import com.kumbu.backend.dto.auth.AuthResponse;
@@ -15,7 +14,6 @@ import com.kumbu.backend.repository.AdminUserRepository;
 import com.kumbu.backend.repository.RefreshTokenRepository;
 import com.kumbu.backend.repository.UserRepository;
 import com.kumbu.backend.security.JwtService;
-import com.kumbu.backend.security.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -94,6 +92,11 @@ public class AuthService {
         RefreshToken token = refreshTokenRepository.findByTokenHash(hash)
                 .orElseThrow(() -> ApiException.unauthorized("Refresh token inválido"));
 
+        if (token.getRevokedAt() != null) {
+            handleRefreshTokenReuse(token);
+            throw ApiException.unauthorized("Sessão inválida. Inicie sessão novamente.");
+        }
+
         if (!token.isValid()) {
             throw ApiException.unauthorized("Refresh token expirado");
         }
@@ -101,10 +104,46 @@ public class AuthService {
         User user = userRepository.findById(token.getUserId())
                 .orElseThrow(() -> ApiException.unauthorized("Utilizador não encontrado"));
 
+        if (!user.isActive()) {
+            token.setRevokedAt(Instant.now());
+            refreshTokenRepository.save(token);
+            throw ApiException.forbidden("Conta suspensa ou eliminada");
+        }
+
+        UUID familyId = token.getFamilyId() != null ? token.getFamilyId() : token.getId();
         token.setRevokedAt(Instant.now());
         refreshTokenRepository.save(token);
 
-        return buildAuthResponse(user);
+        return buildAuthResponse(user, familyId);
+    }
+
+    @Transactional
+    public void logout(String rawRefreshToken) {
+        if (rawRefreshToken == null || rawRefreshToken.isBlank()) {
+            throw ApiException.badRequest("Refresh token é obrigatório para terminar sessão");
+        }
+        revokeRefreshToken(rawRefreshToken);
+    }
+
+    @Transactional
+    public void logoutAllSessions(UUID userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> ApiException.notFound("Utilizador não encontrado"));
+        invalidateAllSessions(user);
+    }
+
+    /** Invalida todos os refresh tokens e JWTs em circulação (incrementa token_version). */
+    @Transactional
+    public void invalidateAllSessions(User user) {
+        Instant now = Instant.now();
+        refreshTokenRepository.findByUserId(user.getId()).forEach(token -> {
+            if (token.getRevokedAt() == null) {
+                token.setRevokedAt(now);
+                refreshTokenRepository.save(token);
+            }
+        });
+        user.setTokenVersion(user.getTokenVersion() + 1);
+        userRepository.save(user);
     }
 
     public AuthResponse buildAuthResponseForUser(User user) {
@@ -116,9 +155,14 @@ public class AuthService {
     }
 
     private AuthResponse buildAuthResponse(User user) {
+        return buildAuthResponse(user, null);
+    }
+
+    private AuthResponse buildAuthResponse(User user, UUID familyId) {
         boolean admin = adminUserRepository.findByUserId(user.getId()).isPresent();
-        String accessToken = jwtService.generateAccessToken(user.getId(), user.getEmail(), admin);
-        String refreshToken = createRefreshToken(user.getId());
+        String accessToken = jwtService.generateAccessToken(
+                user.getId(), user.getEmail(), admin, user.getTokenVersion());
+        String refreshToken = createRefreshToken(user.getId(), familyId);
 
         return AuthResponse.builder()
                 .accessToken(accessToken)
@@ -133,15 +177,32 @@ public class AuthService {
                 .build();
     }
 
-    private String createRefreshToken(UUID userId) {
+    private String createRefreshToken(UUID userId, UUID familyId) {
         String raw = UUID.randomUUID() + "." + UUID.randomUUID();
+        UUID family = familyId != null ? familyId : UUID.randomUUID();
         RefreshToken entity = RefreshToken.builder()
                 .userId(userId)
                 .tokenHash(hashToken(raw))
-                .expiresAt(Instant.now().plusSeconds(properties.getJwt().getRefreshTokenDays() * 86400))
+                .familyId(family)
+                .expiresAt(Instant.now().plusSeconds(properties.getJwt().getRefreshTokenDays() * 86400L))
                 .build();
         refreshTokenRepository.save(entity);
         return raw;
+    }
+
+    private void handleRefreshTokenReuse(RefreshToken token) {
+        Instant now = Instant.now();
+        UUID familyId = token.getFamilyId() != null ? token.getFamilyId() : token.getId();
+        refreshTokenRepository.findByFamilyId(familyId).forEach(t -> {
+            if (t.getRevokedAt() == null) {
+                t.setRevokedAt(now);
+                refreshTokenRepository.save(t);
+            }
+        });
+        userRepository.findById(token.getUserId()).ifPresent(user -> {
+            user.setTokenVersion(user.getTokenVersion() + 1);
+            userRepository.save(user);
+        });
     }
 
     private void clearExpiredBan(User user) {

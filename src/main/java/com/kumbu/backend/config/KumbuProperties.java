@@ -38,8 +38,8 @@ public class KumbuProperties {
     @Setter
     public static class Jwt {
         private String secret;
-        private long accessTokenMinutes = 60;
-        private long refreshTokenDays = 30;
+        private long accessTokenMinutes = 15;
+        private long refreshTokenDays = 14;
     }
 
     @Getter

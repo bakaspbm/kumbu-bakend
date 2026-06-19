@@ -34,7 +34,7 @@ public class SmsService {
         switch (provider) {
             case "twilio" -> sendTwilio(phone, message);
             case "africastalking" -> sendAfricasTalking(phone, message);
-            case "log" -> log.info("[SMS] OTP → {} | code: {}", phone, otp);
+            case "log" -> log.info("[SMS] OTP enviado para {}", maskPhone(phone));
             default -> throw ApiException.badRequest("Fornecedor SMS não suportado: " + provider);
         }
     }
@@ -142,5 +142,12 @@ public class SmsService {
             sb.append(URLEncoder.encode(pairs[i + 1], StandardCharsets.UTF_8));
         }
         return sb.toString();
+    }
+
+    private static String maskPhone(String phone) {
+        if (phone == null || phone.length() < 4) {
+            return "***";
+        }
+        return "***" + phone.substring(phone.length() - 4);
     }
 }

@@ -96,6 +96,10 @@ public class User {
     @Builder.Default
     private boolean phoneVerified = false;
 
+    @Column(name = "token_version", nullable = false)
+    @Builder.Default
+    private int tokenVersion = 0;
+
     @Column(name = "banned_at")
     private Instant bannedAt;
 

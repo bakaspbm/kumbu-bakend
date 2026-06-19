@@ -38,13 +38,24 @@ public class StorageService {
 
 
 
+    private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
+            ".jpg", ".jpeg", ".png", ".webp", ".gif", ".pdf"
+    );
+
     private static final Set<String> ALLOWED_CONTENT_TYPES = Set.of(
-
             "image/jpeg", "image/png", "image/webp", "image/gif"
-
     );
 
     private static final long MAX_BYTES = 10L * 1024 * 1024;
+
+
+
+    private static final Set<String> CHAT_CONTENT_TYPES = Set.of(
+
+            "image/jpeg", "image/png", "image/webp", "image/gif",
+            "image/heic", "image/heif", "application/pdf"
+
+    );
 
 
 
@@ -74,6 +85,8 @@ public class StorageService {
 
         Files.createDirectories(basePath.resolve("listings"));
 
+        Files.createDirectories(basePath.resolve("chat"));
+
         Files.createDirectories(privateBasePath.resolve("identity"));
 
     }
@@ -84,7 +97,7 @@ public class StorageService {
 
         validateUpload(file);
 
-        return store("avatars/" + userId + "_" + UUID.randomUUID() + ext(file), file);
+        return store("avatars/" + userId + "_" + UUID.randomUUID() + safeExt(file), file);
 
     }
 
@@ -94,7 +107,63 @@ public class StorageService {
 
         validateUpload(file);
 
-        return store("listings/" + userId + "_" + UUID.randomUUID() + ext(file), file);
+        return store("listings/" + userId + "_" + UUID.randomUUID() + safeExt(file), file);
+
+    }
+
+
+
+    public String storeChatAttachment(UUID userId, MultipartFile file) {
+
+        validateChatUpload(file);
+
+        String relative = "chat/" + userId + "_" + UUID.randomUUID() + safeExt(file);
+        store(relative, file);
+        return secureChatFileUrl(relative);
+
+    }
+
+    public String secureChatFileUrl(String relativePath) {
+        String normalized = relativePath.replace('\\', '/').replaceFirst("^/+", "");
+        String name = normalized.startsWith("chat/") ? normalized.substring("chat/".length()) : normalized;
+        String apiBase = apiPublicBaseUrl();
+        return apiBase + "/chat/" + name;
+    }
+
+    private String apiPublicBaseUrl() {
+        String filesBase = properties.getStorage().getPublicBaseUrl();
+        if (filesBase != null && filesBase.endsWith("/files")) {
+            return filesBase.substring(0, filesBase.length() - "/files".length()) + "/api/v1/files";
+        }
+        if (filesBase != null && filesBase.contains("/files")) {
+            return filesBase.replace("/files", "/api/v1/files");
+        }
+        return "http://localhost:8080/api/v1/files";
+    }
+
+
+
+    private void validateChatUpload(MultipartFile file) {
+
+        if (file == null || file.isEmpty()) {
+
+            throw ApiException.badRequest("Ficheiro é obrigatório");
+
+        }
+
+        if (file.getSize() > MAX_BYTES) {
+
+            throw ApiException.badRequest("Ficheiro demasiado grande (máx. 10MB)");
+
+        }
+
+        String contentType = file.getContentType();
+
+        if (contentType == null || !CHAT_CONTENT_TYPES.contains(contentType.toLowerCase())) {
+
+            throw ApiException.badRequest("Tipo não suportado. Use JPEG, PNG, WEBP, GIF ou PDF");
+
+        }
 
     }
 
@@ -106,11 +175,11 @@ public class StorageService {
 
         validateUpload(file);
 
-        String relative = "identity/" + userId + "/" + side + "_" + UUID.randomUUID() + ext(file);
+        String relative = "identity/" + userId + "/" + side + "_" + UUID.randomUUID() + safeExt(file);
 
         try {
 
-            Path target = privateBasePath.resolve(relative);
+            Path target = resolveWritablePrivatePath(relative);
 
             Files.createDirectories(target.getParent());
 
@@ -158,13 +227,13 @@ public class StorageService {
 
         try {
 
-            Path target = basePath.resolve(relativePath);
+            Path target = resolveWritablePublicPath(relativePath);
 
             Files.createDirectories(target.getParent());
 
             file.transferTo(target);
 
-            return properties.getStorage().getPublicBaseUrl() + "/" + relativePath.replace('\\', '/');
+            return getPublicUrlForRelativePath(relativePath.replace('\\', '/'));
 
         } catch (IOException e) {
 
@@ -174,30 +243,58 @@ public class StorageService {
 
     }
 
-
-
-    private String ext(MultipartFile file) {
-
-        String name = file.getOriginalFilename();
-
-        if (name == null || !name.contains(".")) return ".jpg";
-
-        return name.substring(name.lastIndexOf('.'));
-
+    public Path resolvePublicPath(String relativePath) {
+        return resolveReadablePath(basePath, relativePath);
     }
 
-    public Path resolvePrivatePath(String relativePath) {
+    private Path resolveWritablePublicPath(String relativePath) {
+        return resolveWritablePath(basePath, relativePath);
+    }
+
+    private Path resolveWritablePrivatePath(String relativePath) {
+        return resolveWritablePath(privateBasePath, relativePath);
+    }
+
+    private Path resolveWritablePath(Path root, String relativePath) {
         if (relativePath == null || relativePath.isBlank()) {
             throw ApiException.badRequest("Caminho inválido");
         }
-        Path resolved = privateBasePath.resolve(relativePath.replace('\\', '/')).normalize();
-        if (!resolved.startsWith(privateBasePath)) {
+        Path resolved = root.resolve(relativePath.replace('\\', '/')).normalize();
+        if (!resolved.startsWith(root)) {
             throw ApiException.badRequest("Caminho inválido");
         }
+        return resolved;
+    }
+
+    private Path resolveReadablePath(Path root, String relativePath) {
+        Path resolved = resolveWritablePath(root, relativePath);
         if (!Files.exists(resolved)) {
             throw ApiException.notFound("Ficheiro não encontrado");
         }
         return resolved;
+    }
+
+    public String getPublicUrlForRelativePath(String relativePath) {
+        return properties.getStorage().getPublicBaseUrl() + "/" + relativePath.replace('\\', '/').replaceFirst("^/+", "");
+    }
+
+    private String safeExt(MultipartFile file) {
+        String name = file.getOriginalFilename();
+        if (name == null || !name.contains(".")) {
+            return ".jpg";
+        }
+        String ext = name.substring(name.lastIndexOf('.')).toLowerCase();
+        if (!ALLOWED_EXTENSIONS.contains(ext)) {
+            throw ApiException.badRequest("Extensão de ficheiro não permitida");
+        }
+        if (ext.contains("/") || ext.contains("\\") || ext.contains("..")) {
+            throw ApiException.badRequest("Nome de ficheiro inválido");
+        }
+        return ext;
+    }
+
+    public Path resolvePrivatePath(String relativePath) {
+        return resolveReadablePath(privateBasePath, relativePath);
     }
 
     public String probeContentType(Path path) {

@@ -16,6 +16,8 @@ import jakarta.validation.constraints.Max;
 
 import jakarta.validation.constraints.Min;
 
+import com.kumbu.backend.security.AdminRoleExpressions;
+import org.springframework.security.access.prepost.PreAuthorize;
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.validation.annotation.Validated;
@@ -64,6 +66,7 @@ public class AdminSystemController {
 
     @PostMapping("/admins")
 
+    @PreAuthorize(AdminRoleExpressions.SUPER_ADMIN)
     public Map<String, Object> createAdmin(@Valid @RequestBody AdminCreateAdminRequest request) {
 
         return adminManagementService.createAdmin(request.getUserId(), request.getRole());
@@ -74,6 +77,7 @@ public class AdminSystemController {
 
     @PatchMapping("/admins/{userId}")
 
+    @PreAuthorize(AdminRoleExpressions.SUPER_ADMIN)
     public Map<String, Object> updateAdminRole(@PathVariable UUID userId, @Valid @RequestBody AdminUpdateRoleRequest request) {
 
         return adminManagementService.updateAdminRole(userId, request.getRole());
@@ -84,6 +88,7 @@ public class AdminSystemController {
 
     @DeleteMapping("/admins/{userId}")
 
+    @PreAuthorize(AdminRoleExpressions.SUPER_ADMIN)
     public void deleteAdmin(@PathVariable UUID userId) {
 
         adminManagementService.deleteAdmin(userId);
@@ -114,6 +119,7 @@ public class AdminSystemController {
 
     @PostMapping("/audit-log")
 
+    @PreAuthorize(AdminRoleExpressions.SUPER_ADMIN)
     public Map<String, Object> createAuditLog(@Valid @RequestBody AdminCreateAuditRequest request) {
 
         return adminManagementService.createAuditEntry(

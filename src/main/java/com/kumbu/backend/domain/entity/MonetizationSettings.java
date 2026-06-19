@@ -39,6 +39,25 @@ public class MonetizationSettings {
     @Builder.Default
     private int gateMinChats = 30;
 
+    @Column(name = "gate_max_dau", nullable = false)
+    @Builder.Default
+    private int gateMaxDau = 300;
+
+    @Column(name = "gate_max_listings", nullable = false)
+    @Builder.Default
+    private int gateMaxListings = 500;
+
+    @Column(name = "gate_max_chats", nullable = false)
+    @Builder.Default
+    private int gateMaxChats = 50;
+
+    @Column(name = "gate_last_ready", nullable = false)
+    @Builder.Default
+    private boolean gateLastReady = false;
+
+    @Column(name = "gate_alert_sent_at")
+    private Instant gateAlertSentAt;
+
     @Column(name = "default_max_listings", nullable = false)
     @Builder.Default
     private int defaultMaxListings = 3;

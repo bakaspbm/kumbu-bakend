@@ -105,5 +105,6 @@ Isto reactiva o fallback Supabase nos frontends Next.js (requer credenciais Supa
 - [ ] SMTP configurado
 - [ ] SMS provider configurado
 - [ ] Backup automático PostgreSQL
-- [ ] Monitorização (`/actuator/health`)
+- [x] Monitorização — ver [MONITORING.md](./MONITORING.md) (Sentry + UptimeRobot + `/actuator/health`)
+- [ ] Beta PC + Vercel — ver [DEPLOY_BETA_PC.md](./DEPLOY_BETA_PC.md)
 - [ ] Supabase desactivado

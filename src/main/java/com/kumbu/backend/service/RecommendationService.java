@@ -1,5 +1,6 @@
 package com.kumbu.backend.service;
 
+import com.kumbu.backend.config.CacheNames;
 import com.kumbu.backend.domain.entity.CatalogProduct;
 import com.kumbu.backend.domain.entity.ProductViewEvent;
 import com.kumbu.backend.domain.entity.User;
@@ -12,6 +13,7 @@ import com.kumbu.backend.repository.ProductViewEventRepository;
 import com.kumbu.backend.repository.UserRepository;
 import com.kumbu.backend.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,6 +50,7 @@ public class RecommendationService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(value = CacheNames.RECOMMENDATIONS, key = "'product:' + #productId + ':' + #limit")
     public Map<String, Object> getProductRecommendations(String productId, int limit) {
         CatalogProduct product = productRepository.findByIdAndDeletedAtIsNull(productId)
                 .orElseThrow(() -> ApiException.notFound("Anúncio não encontrado"));
@@ -66,6 +69,7 @@ public class RecommendationService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(value = CacheNames.RECOMMENDATIONS, key = "'similar:' + #productId + ':' + #limit")
     public List<RecommendationItemResponse> similarProducts(String productId, int limit) {
         CatalogProduct product = productRepository.findByIdAndDeletedAtIsNull(productId)
                 .orElseThrow(() -> ApiException.notFound("Anúncio não encontrado"));
@@ -78,6 +82,7 @@ public class RecommendationService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(value = CacheNames.RECOMMENDATIONS, key = "'trending:' + (#categoryId ?: 'all') + ':' + #limit")
     public List<RecommendationItemResponse> trending(String categoryId, int limit) {
         return dedupeAndMap(
                 productRepository.findTrending(categoryId, PageRequest.of(0, limit * 2)),
@@ -152,6 +157,7 @@ public class RecommendationService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(value = CacheNames.RECOMMENDATIONS, key = "'home:' + #limit + ':' + @securityUtils.cacheUserKey()")
     public Map<String, Object> homeFeed(int limit) {
         Map<String, Object> feed = new LinkedHashMap<>();
         Optional<User> user = currentUserOptional();

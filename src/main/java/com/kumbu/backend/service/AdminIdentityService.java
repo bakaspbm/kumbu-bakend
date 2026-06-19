@@ -3,6 +3,7 @@ package com.kumbu.backend.service;
 import com.kumbu.backend.domain.entity.SellerVerification;
 import com.kumbu.backend.domain.entity.User;
 import com.kumbu.backend.domain.entity.UserIdentityDocument;
+import com.kumbu.backend.domain.entity.UserNotification;
 import com.kumbu.backend.exception.ApiException;
 import com.kumbu.backend.repository.SellerVerificationRepository;
 import com.kumbu.backend.repository.UserIdentityDocumentRepository;
@@ -26,12 +27,20 @@ import java.util.*;
 public class AdminIdentityService {
 
     private static final String IDENTITY_TIER = "identity_kyc";
+    private static final Set<String> SIDES = Set.of("front", "back", "selfie");
+
+    private static final Map<String, String> SIDE_LABELS = Map.of(
+            "front", "Frente do documento",
+            "back", "Verso do documento",
+            "selfie", "Selfie com documento"
+    );
 
     private final SellerVerificationRepository verificationRepository;
     private final UserIdentityDocumentRepository documentRepository;
     private final UserRepository userRepository;
     private final StorageService storageService;
     private final SecurityUtils securityUtils;
+    private final NotificationService notificationService;
 
     @Transactional(readOnly = true)
     public Map<String, Object> listVerifications(String status, int page, int size) {
@@ -61,10 +70,7 @@ public class AdminIdentityService {
     public Map<String, Object> getVerification(UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> ApiException.notFound("Utilizador não encontrado"));
-        SellerVerification verification = verificationRepository
-                .findFirstByUserIdOrderByCreatedAtDesc(userId)
-                .filter(v -> IDENTITY_TIER.equals(v.getTier()))
-                .orElse(null);
+        SellerVerification verification = findIdentityVerification(userId).orElse(null);
         List<UserIdentityDocument> docs = documentRepository.findByUserIdOrderBySideAsc(userId);
 
         Map<String, Object> map = new LinkedHashMap<>();
@@ -72,7 +78,7 @@ public class AdminIdentityService {
         map.put("user_name", user.getDisplayName());
         map.put("user_email", user.getEmail());
         map.put("verification_id", verification != null ? verification.getId() : null);
-        map.put("status", verification != null ? verification.getStatus() : "NOT_SUBMITTED");
+        map.put("status", resolveIdentityStatus(verification, docs));
         map.put("admin_note", verification != null ? verification.getAdminNote() : null);
         map.put("reviewed_at", verification != null ? verification.getReviewedAt() : null);
         map.put("created_at", verification != null ? verification.getCreatedAt() : null);
@@ -82,32 +88,87 @@ public class AdminIdentityService {
 
     @Transactional(readOnly = true)
     public Resource loadDocument(UUID userId, String side) {
-        String normalizedSide = normalizeSide(side);
-        UserIdentityDocument doc = documentRepository
-                .findById(new UserIdentityDocument.UserIdentityDocumentId(userId, normalizedSide))
-                .orElseThrow(() -> ApiException.notFound("Documento não encontrado"));
+        UserIdentityDocument doc = requireDocument(userId, normalizeSide(side));
         Path path = storageService.resolvePrivatePath(doc.getStoragePath());
         return new FileSystemResource(path);
     }
 
     @Transactional(readOnly = true)
     public MediaType documentMediaType(UUID userId, String side) {
-        String normalizedSide = normalizeSide(side);
-        UserIdentityDocument doc = documentRepository
-                .findById(new UserIdentityDocument.UserIdentityDocumentId(userId, normalizedSide))
-                .orElseThrow(() -> ApiException.notFound("Documento não encontrado"));
+        UserIdentityDocument doc = requireDocument(userId, normalizeSide(side));
         Path path = storageService.resolvePrivatePath(doc.getStoragePath());
         return MediaType.parseMediaType(storageService.probeContentType(path));
     }
 
     @Transactional
+    public Map<String, Object> approveDocument(UUID userId, String side, String note) {
+        SellerVerification verification = requireReviewableVerification(userId);
+        UserIdentityDocument doc = requireDocument(userId, normalizeSide(side));
+        if ("APPROVED".equalsIgnoreCase(doc.getReviewStatus())) {
+            return getVerification(userId);
+        }
+
+        UUID reviewerId = securityUtils.currentUserId();
+        doc.setReviewStatus("APPROVED");
+        doc.setRejectionReason(null);
+        doc.setReviewedAt(Instant.now());
+        doc.setReviewedBy(reviewerId);
+        documentRepository.save(doc);
+
+        syncVerificationStatus(userId, verification, trimNote(note), false);
+        return getVerification(userId);
+    }
+
+    @Transactional
+    public Map<String, Object> rejectDocument(UUID userId, String side, String note) {
+        if (note == null || note.isBlank()) {
+            throw ApiException.badRequest("Indique o motivo da rejeição.");
+        }
+        SellerVerification verification = requireReviewableVerification(userId);
+        String normalizedSide = normalizeSide(side);
+        UserIdentityDocument doc = requireDocument(userId, normalizedSide);
+        String reason = note.trim();
+
+        UUID reviewerId = securityUtils.currentUserId();
+        doc.setReviewStatus("REJECTED");
+        doc.setRejectionReason(reason);
+        doc.setReviewedAt(Instant.now());
+        doc.setReviewedBy(reviewerId);
+        documentRepository.save(doc);
+
+        verification.setStatus("REJECTED");
+        verification.setAdminNote(buildRejectionSummary(documentRepository.findByUserIdOrderBySideAsc(userId)));
+        verification.setReviewedAt(Instant.now());
+        verification.setReviewedBy(reviewerId);
+        verificationRepository.save(verification);
+
+        notifyDocumentRejection(userId, normalizedSide, reason);
+        return getVerification(userId);
+    }
+
+    @Transactional
     public Map<String, Object> approve(UUID userId, String note) {
-        SellerVerification verification = requirePendingOrRejected(userId);
+        SellerVerification verification = requireReviewableVerification(userId);
+        UUID reviewerId = securityUtils.currentUserId();
+        Instant now = Instant.now();
+
+        for (UserIdentityDocument doc : documentRepository.findByUserIdOrderBySideAsc(userId)) {
+            if (!"APPROVED".equalsIgnoreCase(doc.getReviewStatus())) {
+                doc.setReviewStatus("APPROVED");
+                doc.setRejectionReason(null);
+                doc.setReviewedAt(now);
+                doc.setReviewedBy(reviewerId);
+                documentRepository.save(doc);
+            }
+        }
+
         verification.setStatus("APPROVED");
         verification.setAdminNote(trimNote(note));
-        verification.setReviewedAt(Instant.now());
-        verification.setReviewedBy(securityUtils.currentUserId());
+        verification.setReviewedAt(now);
+        verification.setReviewedBy(reviewerId);
         verificationRepository.save(verification);
+
+        notifyApproval(userId);
         return getVerification(userId);
     }
 
@@ -116,12 +177,26 @@ public class AdminIdentityService {
         if (note == null || note.isBlank()) {
             throw ApiException.badRequest("Indique o motivo da rejeição.");
         }
-        SellerVerification verification = requirePendingOrRejected(userId);
+        SellerVerification verification = requireReviewableVerification(userId);
+        UUID reviewerId = securityUtils.currentUserId();
+        Instant now = Instant.now();
+        String reason = note.trim();
+
+        for (UserIdentityDocument doc : documentRepository.findByUserIdOrderBySideAsc(userId)) {
+            doc.setReviewStatus("REJECTED");
+            doc.setRejectionReason(reason);
+            doc.setReviewedAt(now);
+            doc.setReviewedBy(reviewerId);
+            documentRepository.save(doc);
+        }
+
         verification.setStatus("REJECTED");
-        verification.setAdminNote(note.trim());
-        verification.setReviewedAt(Instant.now());
-        verification.setReviewedBy(securityUtils.currentUserId());
+        verification.setAdminNote(reason);
+        verification.setReviewedAt(now);
+        verification.setReviewedBy(reviewerId);
         verificationRepository.save(verification);
+
+        notifyFullRejection(userId, reason);
         return getVerification(userId);
     }
 
@@ -132,19 +207,89 @@ public class AdminIdentityService {
                 .getTotalElements();
     }
 
-    private SellerVerification requirePendingOrRejected(UUID userId) {
-        SellerVerification verification = verificationRepository
-                .findFirstByUserIdOrderByCreatedAtDesc(userId)
-                .filter(v -> IDENTITY_TIER.equals(v.getTier()))
+    private void syncVerificationStatus(
+            UUID userId,
+            SellerVerification verification,
+            String optionalNote,
+            boolean notifyOnPartialReject
+    ) {
+        List<UserIdentityDocument> docs = documentRepository.findByUserIdOrderBySideAsc(userId);
+        if (docs.size() < 3) {
+            return;
+        }
+
+        boolean allApproved = docs.stream().allMatch(d -> "APPROVED".equalsIgnoreCase(d.getReviewStatus()));
+        boolean anyRejected = docs.stream().anyMatch(d -> "REJECTED".equalsIgnoreCase(d.getReviewStatus()));
+
+        if (allApproved) {
+            verification.setStatus("APPROVED");
+            verification.setAdminNote(trimNote(optionalNote));
+            verification.setReviewedAt(Instant.now());
+            verification.setReviewedBy(securityUtils.currentUserId());
+            verificationRepository.save(verification);
+            notifyApproval(userId);
+            return;
+        }
+
+        if (anyRejected) {
+            verification.setStatus("REJECTED");
+            verification.setAdminNote(buildRejectionSummary(docs));
+            verification.setReviewedAt(Instant.now());
+            verification.setReviewedBy(securityUtils.currentUserId());
+            verificationRepository.save(verification);
+            if (notifyOnPartialReject) {
+                notifyFullRejection(userId, verification.getAdminNote());
+            }
+        } else {
+            verification.setStatus("PENDING");
+            verification.setAdminNote(null);
+            verification.setReviewedAt(null);
+            verification.setReviewedBy(null);
+            verificationRepository.save(verification);
+        }
+    }
+
+    private SellerVerification requireReviewableVerification(UUID userId) {
+        SellerVerification verification = findIdentityVerification(userId)
                 .orElseThrow(() -> ApiException.notFound("Pedido de verificação não encontrado"));
-        if (!"PENDING".equalsIgnoreCase(verification.getStatus())
-                && !"REJECTED".equalsIgnoreCase(verification.getStatus())) {
-            throw ApiException.badRequest("Este pedido já foi revisto.");
+        if ("APPROVED".equalsIgnoreCase(verification.getStatus())) {
+            throw ApiException.badRequest("Esta identidade já foi aprovada.");
         }
         if (documentRepository.countByUserId(userId) < 3) {
             throw ApiException.badRequest("Documentos incompletos.");
         }
         return verification;
+    }
+
+    private Optional<SellerVerification> findIdentityVerification(UUID userId) {
+        return verificationRepository.findFirstByUserIdAndTierOrderByCreatedAtDesc(userId, IDENTITY_TIER);
+    }
+
+    private String resolveIdentityStatus(SellerVerification verification, List<UserIdentityDocument> docs) {
+        if (verification != null) {
+            return verification.getStatus();
+        }
+        if (docs.isEmpty()) {
+            return "NOT_SUBMITTED";
+        }
+        if (docs.size() < 3) {
+            return "INCOMPLETE";
+        }
+        boolean anyRejected = docs.stream().anyMatch(d -> "REJECTED".equalsIgnoreCase(d.getReviewStatus()));
+        if (anyRejected) {
+            return "REJECTED";
+        }
+        boolean allApproved = docs.stream().allMatch(d -> "APPROVED".equalsIgnoreCase(d.getReviewStatus()));
+        if (allApproved) {
+            return "APPROVED";
+        }
+        return "PENDING";
+    }
+
+    private UserIdentityDocument requireDocument(UUID userId, String side) {
+        return documentRepository
+                .findById(new UserIdentityDocument.UserIdentityDocumentId(userId, side))
+                .orElseThrow(() -> ApiException.notFound("Documento não encontrado"));
     }
 
     private Map<String, Object> toListItem(SellerVerification verification) {
@@ -165,7 +310,57 @@ public class AdminIdentityService {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("side", doc.getSide());
         map.put("uploaded_at", doc.getUploadedAt());
+        map.put("review_status", doc.getReviewStatus() != null ? doc.getReviewStatus() : "PENDING");
+        map.put("rejection_reason", doc.getRejectionReason());
+        map.put("reviewed_at", doc.getReviewedAt());
         return map;
+    }
+
+    private String buildRejectionSummary(List<UserIdentityDocument> docs) {
+        StringBuilder summary = new StringBuilder();
+        for (UserIdentityDocument doc : docs) {
+            if (!"REJECTED".equalsIgnoreCase(doc.getReviewStatus())) {
+                continue;
+            }
+            if (summary.length() > 0) {
+                summary.append("\n");
+            }
+            summary.append(SIDE_LABELS.getOrDefault(doc.getSide(), doc.getSide()))
+                    .append(": ")
+                    .append(doc.getRejectionReason() != null ? doc.getRejectionReason() : "Rejeitado");
+        }
+        return summary.toString();
+    }
+
+    private void notifyDocumentRejection(UUID userId, String side, String reason) {
+        String label = SIDE_LABELS.getOrDefault(side, side);
+        notificationService.saveAndPush(UserNotification.builder()
+                .userId(userId)
+                .title("Documento de identidade rejeitado")
+                .body(label + ": " + reason + "\n\nSubstitua esta foto em Conta → Definições e reenvie o pedido.")
+                .iconKey("badge_outlined")
+                .actionUrl("/conta/definicoes")
+                .build());
+    }
+
+    private void notifyFullRejection(UUID userId, String reason) {
+        notificationService.saveAndPush(UserNotification.builder()
+                .userId(userId)
+                .title("Verificação de identidade rejeitada")
+                .body(reason + "\n\nCorrija os documentos indicados em Conta → Definições e reenvie o pedido.")
+                .iconKey("badge_outlined")
+                .actionUrl("/conta/definicoes")
+                .build());
+    }
+
+    private void notifyApproval(UUID userId) {
+        notificationService.saveAndPush(UserNotification.builder()
+                .userId(userId)
+                .title("Identidade verificada")
+                .body("A sua verificação de identidade foi aprovada. Obrigado!")
+                .iconKey("verified_outlined")
+                .actionUrl("/conta/definicoes")
+                .build());
     }
 
     private static String normalizeSide(String side) {
@@ -173,13 +368,17 @@ public class AdminIdentityService {
             throw ApiException.badRequest("Lado inválido");
         }
         String normalized = side.trim().toLowerCase();
-        if (!Set.of("front", "back", "selfie").contains(normalized)) {
+        if (!SIDES.contains(normalized)) {
             throw ApiException.badRequest("Lado inválido");
         }
         return normalized;
     }
 
     private static String trimNote(String note) {
-        return note == null ? null : note.trim();
+        if (note == null) {
+            return null;
+        }
+        String trimmed = note.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 }

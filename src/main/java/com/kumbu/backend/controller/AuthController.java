@@ -6,6 +6,7 @@ import com.kumbu.backend.domain.enums.SignupSource;
 
 import com.kumbu.backend.dto.auth.AuthResponse;
 
+import com.kumbu.backend.dto.auth.FacebookCodeRequest;
 import com.kumbu.backend.dto.auth.EmailActionResponse;
 
 import com.kumbu.backend.dto.auth.EmailRequest;
@@ -67,6 +68,8 @@ public class AuthController {
 
     private final SecurityUtils securityUtils;
 
+    private final DevEmailActionSanitizer devEmailActionSanitizer;
+
 
 
     @PostMapping("/register")
@@ -85,7 +88,7 @@ public class AuthController {
 
         }
 
-        return response;
+        return devEmailActionSanitizer.sanitize(response);
 
     }
 
@@ -105,13 +108,21 @@ public class AuthController {
 
     @ResponseStatus(HttpStatus.NO_CONTENT)
 
-    public void logout(@RequestBody(required = false) RefreshRequest request) {
+    public void logout(@Valid @RequestBody RefreshRequest request) {
 
-        if (request != null && request.getRefreshToken() != null) {
+        authService.logout(request.getRefreshToken());
 
-            authService.revokeRefreshToken(request.getRefreshToken());
+    }
 
-        }
+
+
+    @PostMapping("/logout-all")
+
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+
+    public void logoutAll() {
+
+        authService.logoutAllSessions(securityUtils.currentUserId());
 
     }
 
@@ -133,13 +144,13 @@ public class AuthController {
 
         String link = extendedAuthService.forgotPassword(request.getEmail());
 
-        return EmailActionResponse.builder()
+        return devEmailActionSanitizer.sanitize(EmailActionResponse.builder()
 
                 .message("Se existir conta com este email, enviámos instruções.")
 
                 .emailActionLink(link)
 
-                .build();
+                .build());
 
     }
 
@@ -173,13 +184,13 @@ public class AuthController {
 
         String link = extendedAuthService.sendEmailVerification(securityUtils.currentUserId());
 
-        return EmailActionResponse.builder()
+        return devEmailActionSanitizer.sanitize(EmailActionResponse.builder()
 
                 .message("Link de confirmação reenviado.")
 
                 .emailActionLink(link)
 
-                .build();
+                .build());
 
     }
 
@@ -191,13 +202,13 @@ public class AuthController {
 
         String link = extendedAuthService.resendEmailVerificationByEmail(request.getEmail());
 
-        return EmailActionResponse.builder()
+        return devEmailActionSanitizer.sanitize(EmailActionResponse.builder()
 
                 .message("Se a conta existir e não estiver confirmada, enviámos um novo link.")
 
                 .emailActionLink(link)
 
-                .build();
+                .build());
 
     }
 
@@ -242,6 +253,16 @@ public class AuthController {
 
         return extendedAuthService.oauthLogin(provider, request, source);
 
+    }
+
+    @PostMapping("/oauth/facebook/code")
+    public AuthResponse facebookCode(@Valid @RequestBody FacebookCodeRequest request) {
+        SignupSource source = SignupSource.valueOf(request.getSignupSource().toUpperCase());
+        return devEmailActionSanitizer.sanitize(
+                extendedAuthService.oauthLoginWithFacebookCode(
+                        request.getCode(),
+                        request.getRedirectUri(),
+                        source));
     }
 
 }

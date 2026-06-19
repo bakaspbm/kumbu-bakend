@@ -43,6 +43,8 @@ public class ChatService {
     private final MonetizationVipTrackingService vipTrackingService;
     private final SimpMessagingTemplate messagingTemplate;
     private final UserPresenceService userPresenceService;
+    private final ChatSafetyService chatSafetyService;
+    private final StorageUrlValidator storageUrlValidator;
 
     @Transactional
     public ConversationResponse startConversation(String productId) {
@@ -60,6 +62,13 @@ public class ChatService {
             throw ApiException.forbidden("Desbloqueie o contacto do vendedor (100 Kz) antes de iniciar conversa");
         }
 
+        if (product.isOutOfStock()) {
+            throw ApiException.badRequest("Este anúncio está esgotado");
+        }
+        if (product.getJobListingStatus() != null && !"active".equals(product.getJobListingStatus())) {
+            throw ApiException.badRequest("Esta vaga já não está disponível");
+        }
+
         Conversation conversation = conversationRepository.findByProductIdAndBuyerId(productId, buyerId)
                 .orElseGet(() -> {
                     Conversation created = conversationRepository.save(Conversation.builder()
@@ -69,6 +78,7 @@ public class ChatService {
                             .dealStatus(DealStatus.OPEN)
                             .build());
                     vipTrackingService.recordVipContact(product.getSellerId(), product.getCategoryId());
+                    sendSystemMessage(created.getId(), ChatSafetyService.SAFETY_WELCOME);
                     return created;
                 });
 
@@ -101,32 +111,56 @@ public class ChatService {
     }
 
     @Transactional
-    public ChatMessageResponse sendMessage(UUID conversationId, String body) {
-        if (body == null || body.isBlank()) {
-            throw ApiException.badRequest("Mensagem é obrigatória");
+    public ChatMessageResponse sendMessage(UUID conversationId, String body, String attachmentUrl) {
+        String trimmedBody = body != null ? body.trim() : "";
+        String attachment = attachmentUrl != null && !attachmentUrl.isBlank() ? attachmentUrl.trim() : null;
+        if (trimmedBody.isEmpty() && attachment == null) {
+            throw ApiException.badRequest("Escreva uma mensagem ou anexe um ficheiro");
         }
-        if (body.length() > 4000) {
+        if (trimmedBody.length() > 4000) {
             throw ApiException.badRequest("Mensagem demasiado longa");
         }
         UUID senderId = securityUtils.currentUserId();
+        if (attachment != null) {
+            storageUrlValidator.assertOwnedChatOrListingUrl(senderId, attachment);
+        }
         Conversation conversation = assertParticipant(conversationId);
 
         if (conversation.isBlocked()) {
             throw ApiException.forbidden("Conversa bloqueada");
         }
 
+        boolean phoneDetected = chatSafetyService.containsPhoneNumber(trimmedBody);
+        String messageKind = attachment != null ? "attachment" : "text";
+
         ChatMessage message = chatMessageRepository.save(ChatMessage.builder()
                 .conversationId(conversationId)
                 .senderId(senderId)
-                .body(body.trim())
+                .body(trimmedBody.isEmpty() ? "📎 Ficheiro partilhado" : trimmedBody)
+                .messageKind(messageKind)
+                .attachmentUrl(attachment)
                 .build());
 
         conversation.setUpdatedAt(Instant.now());
         conversationRepository.save(conversation);
 
+        if (phoneDetected) {
+            sendSystemMessage(conversationId, ChatSafetyService.PHONE_WARNING);
+        }
+
         ChatMessageResponse response = toMessage(message);
+        response.setPhoneWarning(phoneDetected);
         schedulePushMessage(conversation, senderId, response);
         return response;
+    }
+
+    private void sendSystemMessage(UUID conversationId, String body) {
+        chatMessageRepository.save(ChatMessage.builder()
+                .conversationId(conversationId)
+                .senderId(SupportService.SUPPORT_SYSTEM_USER_ID)
+                .body(body.trim())
+                .messageKind("system")
+                .build());
     }
 
     @Transactional
@@ -184,6 +218,7 @@ public class ChatService {
                 .sellerId(c.getSellerId())
                 .otherPartyId(otherId)
                 .otherPartyName(other != null ? other.getDisplayName() : null)
+                .otherPartyVerified(other != null && other.isSellerVerified())
                 .lastMessageBody(lastMessage != null ? lastMessage.getBody() : null)
                 .lastMessageSenderId(lastMessage != null ? lastMessage.getSenderId() : null)
                 .lastMessageAt(lastMessage != null ? lastMessage.getCreatedAt() : null)
@@ -196,6 +231,7 @@ public class ChatService {
     }
 
     private ChatMessageResponse toMessage(ChatMessage m) {
+        boolean isSystem = "system".equals(m.getMessageKind());
         return ChatMessageResponse.builder()
                 .id(m.getId())
                 .conversationId(m.getConversationId())
@@ -204,7 +240,9 @@ public class ChatService {
                 .createdAt(m.getCreatedAt())
                 .readAt(m.getReadAt())
                 .messageKind(m.getMessageKind())
-                .fromSupport(false)
+                .attachmentUrl(m.getAttachmentUrl())
+                .fromSupport(isSystem || SupportService.SUPPORT_SYSTEM_USER_ID.equals(m.getSenderId()))
+                .phoneWarning(false)
                 .build();
     }
 

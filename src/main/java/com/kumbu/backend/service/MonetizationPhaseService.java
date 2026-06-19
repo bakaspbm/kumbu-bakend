@@ -1,5 +1,6 @@
 package com.kumbu.backend.service;
 
+import com.kumbu.backend.config.CacheNames;
 import com.kumbu.backend.domain.entity.*;
 import com.kumbu.backend.domain.enums.ApprovalRequestStatus;
 import com.kumbu.backend.domain.enums.MonetizationFeatureType;
@@ -7,6 +8,8 @@ import com.kumbu.backend.exception.ApiException;
 import com.kumbu.backend.repository.*;
 import com.kumbu.backend.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,6 +30,7 @@ public class MonetizationPhaseService {
     private final SecurityUtils securityUtils;
 
     @Transactional(readOnly = true)
+    @Cacheable(value = CacheNames.MONETIZATION, key = "'catalog'")
     public Map<String, Object> getPublicCatalog() {
         List<Map<String, Object>> phases = phaseRepository.findAllByOrderBySortOrderAsc().stream()
                 .map(this::toPhaseMap)
@@ -129,6 +133,7 @@ public class MonetizationPhaseService {
     }
 
     @Transactional
+    @CacheEvict(value = CacheNames.MONETIZATION, allEntries = true)
     public Map<String, Object> approveRequest(UUID requestId, String note) {
         MonetizationApprovalRequest request = approvalRepository.findById(requestId)
                 .orElseThrow(() -> ApiException.notFound("Pedido não encontrado"));
@@ -183,6 +188,7 @@ public class MonetizationPhaseService {
     }
 
     @Transactional
+    @CacheEvict(value = CacheNames.MONETIZATION, allEntries = true)
     public Map<String, Object> activateFeatureDirectly(String featureId) {
         MonetizationFeature feature = featureRepository.findById(featureId)
                 .orElseThrow(() -> ApiException.notFound("Feature não encontrada"));
@@ -196,6 +202,7 @@ public class MonetizationPhaseService {
     }
 
     @Transactional
+    @CacheEvict(value = CacheNames.MONETIZATION, allEntries = true)
     public Map<String, Object> deactivateFeature(String featureId) {
         MonetizationFeature feature = featureRepository.findById(featureId)
                 .orElseThrow(() -> ApiException.notFound("Feature não encontrada"));

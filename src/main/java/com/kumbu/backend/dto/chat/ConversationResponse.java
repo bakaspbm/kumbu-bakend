@@ -16,6 +16,7 @@ public class ConversationResponse {
     private UUID sellerId;
     private UUID otherPartyId;
     private String otherPartyName;
+    private boolean otherPartyVerified;
     private String lastMessageBody;
     private UUID lastMessageSenderId;
     private Instant lastMessageAt;

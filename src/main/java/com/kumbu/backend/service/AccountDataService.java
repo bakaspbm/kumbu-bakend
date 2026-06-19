@@ -19,7 +19,6 @@ import java.util.UUID;
 public class AccountDataService {
 
     private final UserRepository userRepository;
-    private final RefreshTokenRepository refreshTokenRepository;
     private final UserDeletionEventRepository deletionEventRepository;
     private final UserConsentRepository consentRepository;
     private final UserCvRepository cvRepository;
@@ -31,6 +30,7 @@ public class AccountDataService {
     private final ContentReportRepository reportRepository;
     private final SecurityUtils securityUtils;
     private final ProfileCompletenessService profileCompletenessService;
+    private final AuthService authService;
 
     @Transactional(readOnly = true)
     public Map<String, Object> exportAccountData() {
@@ -94,11 +94,7 @@ public class AccountDataService {
                 .source("app")
                 .build());
 
-        refreshTokenRepository.findByUserId(userId).forEach(token -> {
-            token.setRevokedAt(now);
-            refreshTokenRepository.save(token);
-        });
-
+        authService.invalidateAllSessions(user);
         user.setDeletedAt(now);
         userRepository.save(user);
     }
@@ -160,11 +156,12 @@ public class AccountDataService {
     }
 
     private Map<String, Object> toNotificationSummary(UserNotification n) {
-        return Map.of(
-                "id", n.getId(),
-                "title", n.getTitle(),
-                "body", n.getBody(),
-                "readAt", n.getReadAt(),
-                "createdAt", n.getCreatedAt());
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", n.getId());
+        row.put("title", n.getTitle());
+        row.put("body", n.getBody());
+        row.put("readAt", n.getReadAt());
+        row.put("createdAt", n.getCreatedAt());
+        return row;
     }
 }

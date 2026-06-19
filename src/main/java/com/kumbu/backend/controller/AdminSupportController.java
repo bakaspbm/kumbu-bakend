@@ -43,7 +43,7 @@ public class AdminSupportController {
     public ChatMessageResponse reply(
             @PathVariable UUID id,
             @Valid @RequestBody SupportMessageRequest request) {
-        return supportService.adminReply(id, request.getBody());
+        return supportService.adminReply(id, request.getBody(), request.getAttachmentUrl());
     }
 
     @PostMapping("/conversations/{id}/close")

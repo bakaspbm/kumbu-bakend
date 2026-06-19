@@ -30,7 +30,7 @@ public class SupportController {
 
     @PostMapping("/conversation/messages")
     public List<ChatMessageResponse> sendMessage(@Valid @RequestBody SupportMessageRequest request) {
-        return supportService.sendUserMessage(request.getBody());
+        return supportService.sendUserMessage(request.getBody(), request.getAttachmentUrl());
     }
 
     @PostMapping("/conversation/quick-action")

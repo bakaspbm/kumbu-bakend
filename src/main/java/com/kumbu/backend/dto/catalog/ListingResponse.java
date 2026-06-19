@@ -27,9 +27,11 @@ public class ListingResponse {
     private int viewCount;
     private boolean featured;
     private boolean outOfStock;
+    private String jobListingStatus;
     private UUID sellerId;
     private String sellerName;
     private String sellerPhotoUrl;
+    private boolean sellerVerified;
     private Instant createdAt;
     private Object propertyMeta;
     private Object jobMeta;

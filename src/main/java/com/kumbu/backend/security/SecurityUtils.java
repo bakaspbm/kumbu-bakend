@@ -21,6 +21,19 @@ public class SecurityUtils {
         return currentUser().getId();
     }
 
+    public UUID currentUserIdOrNull() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !(auth.getPrincipal() instanceof UserPrincipal principal)) {
+            return null;
+        }
+        return principal.getId();
+    }
+
+    public String cacheUserKey() {
+        UUID id = currentUserIdOrNull();
+        return id != null ? id.toString() : "anon";
+    }
+
     public boolean isAdmin() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !(auth.getPrincipal() instanceof UserPrincipal principal)) {

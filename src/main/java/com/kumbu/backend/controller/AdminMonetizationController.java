@@ -4,6 +4,7 @@ import com.kumbu.backend.dto.monetization.*;
 import com.kumbu.backend.service.MonetizationAdminConfigService;
 import com.kumbu.backend.service.MonetizationAnalyticsService;
 import com.kumbu.backend.service.MonetizationCategoryService;
+import com.kumbu.backend.service.MonetizationGateAlertService;
 import com.kumbu.backend.service.MonetizationMetricsService;
 import com.kumbu.backend.service.MonetizationPaymentService;
 import com.kumbu.backend.service.MonetizationPhaseService;
@@ -28,6 +29,7 @@ public class AdminMonetizationController {
     private final MonetizationCategoryService categoryService;
     private final MonetizationRoutineService routineService;
     private final MonetizationAnalyticsService analyticsService;
+    private final MonetizationGateAlertService gateAlertService;
 
     // ── Overview & métricas ──────────────────────────────────────────
 
@@ -38,12 +40,12 @@ public class AdminMonetizationController {
 
     @PostMapping("/metrics/refresh")
     public Map<String, Object> refreshMetrics() {
-        return metricsService.computeAndStoreToday();
+        return gateAlertService.evaluateAndNotify();
     }
 
     @GetMapping("/gate")
     public Map<String, Object> gateStatus() {
-        return metricsService.checkMonetizationGate();
+        return gateAlertService.getGateStatusForAdmin();
     }
 
     // ── Configurações gerais (empresa, gatilhos, prazos) ─────────────

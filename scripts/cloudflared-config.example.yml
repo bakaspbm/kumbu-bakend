@@ -1,0 +1,11 @@
+# Cloudflare Tunnel — API Kumbu no PC
+# Copiar para: %USERPROFILE%\.cloudflared\config.yml
+# Substituir TUNNEL_ID pelo UUID de: cloudflared tunnel create kumbu-api
+
+tunnel: TUNNEL_ID
+credentials-file: C:\Users\PC\.cloudflared\TUNNEL_ID.json
+
+ingress:
+  - hostname: api.kumbu-market.com
+    service: http://localhost:8080
+  - service: http_status:404

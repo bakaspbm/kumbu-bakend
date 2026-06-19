@@ -44,4 +44,14 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
 
     @Query("SELECT COUNT(DISTINCT m.senderId) FROM ChatMessage m WHERE m.createdAt >= :since AND m.hiddenAt IS NULL")
     long countDistinctSendersSince(@Param("since") Instant since);
+
+    @Query("""
+            SELECT CASE WHEN COUNT(m) > 0 THEN true ELSE false END
+            FROM ChatMessage m
+            JOIN Conversation c ON c.id = m.conversationId
+            WHERE m.attachmentUrl = :attachmentUrl
+              AND (c.buyerId = :userId OR c.sellerId = :userId)
+            """)
+    boolean existsByAttachmentUrlAndParticipant(@Param("attachmentUrl") String attachmentUrl,
+                                                @Param("userId") UUID userId);
 }

@@ -15,28 +15,43 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Rate limit simples por IP em endpoints de autenticação (protecção brute-force).
+ * Rate limit por IP em endpoints sensíveis.
  */
 @Component
 @Slf4j
 public class RateLimitFilter extends OncePerRequestFilter {
 
-    private static final int MAX_REQUESTS_PER_MINUTE = 30;
     private static final long WINDOW_MS = 60_000;
+
+    private record LimitRule(int maxPerMinute) {}
+
+    private static final Map<String, LimitRule> RULES = Map.of(
+            "auth", new LimitRule(120),
+            "guest-support", new LimitRule(30),
+            "phone-verify", new LimitRule(20),
+            "file-upload", new LimitRule(40),
+            "catalog-view", new LimitRule(120)
+    );
 
     private final Map<String, Window> windows = new ConcurrentHashMap<>();
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        String path = request.getRequestURI();
-        return !path.startsWith("/api/v1/auth/");
+        return classify(request.getRequestURI(), request.getMethod()) == null;
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
-        String key = clientKey(request);
+        String ruleKey = classify(request.getRequestURI(), request.getMethod());
+        if (ruleKey == null) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        LimitRule rule = RULES.get(ruleKey);
+        String key = clientKey(request) + ":" + ruleKey;
         Window window = windows.computeIfAbsent(key, k -> new Window());
 
         synchronized (window) {
@@ -45,11 +60,12 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 window.startMs = now;
                 window.count.set(0);
             }
-            if (window.count.incrementAndGet() > MAX_REQUESTS_PER_MINUTE) {
-                log.warn("Rate limit exceeded for {}", key);
+            if (window.count.incrementAndGet() > rule.maxPerMinute()) {
+                log.warn("Rate limit exceeded for {} ({})", key, ruleKey);
                 response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
                 response.setContentType("application/json");
-                response.getWriter().write("{\"code\":\"RATE_LIMIT\",\"message\":\"Demasiados pedidos. Tente novamente.\"}");
+                response.getWriter().write(
+                        "{\"code\":\"RATE_LIMIT\",\"message\":\"Demasiados pedidos. Tente novamente.\"}");
                 return;
             }
         }
@@ -57,10 +73,29 @@ public class RateLimitFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
+    private static String classify(String path, String method) {
+        if (path.startsWith("/api/v1/auth/phone/verify")) {
+            return "phone-verify";
+        }
+        if (path.startsWith("/api/v1/auth/")) {
+            return "auth";
+        }
+        if (path.startsWith("/api/v1/support/guest/")) {
+            return "guest-support";
+        }
+        if (path.startsWith("/api/v1/files/") && "POST".equalsIgnoreCase(method)) {
+            return "file-upload";
+        }
+        if (path.matches("/api/v1/catalog/listings/.+/view") && "POST".equalsIgnoreCase(method)) {
+            return "catalog-view";
+        }
+        return null;
+    }
+
     private String clientKey(HttpServletRequest request) {
         String forwarded = request.getHeader("X-Forwarded-For");
         String ip = forwarded != null ? forwarded.split(",")[0].trim() : request.getRemoteAddr();
-        return ip + ":" + request.getRequestURI();
+        return ip;
     }
 
     private static class Window {

@@ -1,9 +1,12 @@
 package com.kumbu.backend.config;
 
+import com.kumbu.backend.repository.ConversationRepository;
+import com.kumbu.backend.repository.UserRepository;
 import com.kumbu.backend.security.JwtService;
 import com.kumbu.backend.service.UserPresenceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.config.ChannelRegistration;
@@ -13,10 +16,13 @@ import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -26,7 +32,11 @@ import java.util.UUID;
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     private final JwtService jwtService;
+    private final UserRepository userRepository;
+    private final ConversationRepository conversationRepository;
     private final UserPresenceService userPresenceService;
+    private final KumbuProperties properties;
+    private final Environment environment;
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry config) {
@@ -38,8 +48,30 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws/chat", "/ws")
-                .setAllowedOriginPatterns("*")
+                .setAllowedOriginPatterns(websocketOriginPatterns())
                 .withSockJS();
+    }
+
+    private String[] websocketOriginPatterns() {
+        List<String> patterns = new ArrayList<>(properties.getCors().getAllowedOriginPatterns());
+        for (String origin : properties.getCors().getAllowedOrigins()) {
+            patterns.add(origin);
+        }
+        if (!isProd()) {
+            patterns.addAll(List.of(
+                    "http://localhost:*",
+                    "http://127.0.0.1:*",
+                    "http://192.168.*:*"
+            ));
+        }
+        if (patterns.isEmpty()) {
+            return new String[] {"https://*"};
+        }
+        return patterns.stream().distinct().toArray(String[]::new);
+    }
+
+    private boolean isProd() {
+        return Arrays.asList(environment.getActiveProfiles()).contains("prod");
     }
 
     @Override
@@ -54,14 +86,44 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                         throw new IllegalArgumentException("Token em falta na ligação WebSocket");
                     }
                     try {
-                        UUID userId = jwtService.extractUserId(auth.get(0).substring(7));
+                        String bearer = auth.get(0).substring(7);
+                        UUID userId = jwtService.extractUserId(bearer);
+                        int tokenVersion = jwtService.extractTokenVersion(bearer);
+                        userRepository.findById(userId)
+                                .filter(u -> u.isActive() && u.getTokenVersion() == tokenVersion)
+                                .orElseThrow();
                         accessor.setUser(new UsernamePasswordAuthenticationToken(userId.toString(), null, List.of()));
                         userPresenceService.touchIfDue(userId);
                     } catch (Exception ex) {
                         throw new IllegalArgumentException("Token inválido na ligação WebSocket");
                     }
                 }
+                if (accessor != null && StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
+                    assertSubscribeAllowed(accessor);
+                }
                 return message;
+            }
+
+            private void assertSubscribeAllowed(StompHeaderAccessor accessor) {
+                String destination = accessor.getDestination();
+                if (destination == null) {
+                    return;
+                }
+                if (destination.startsWith("/topic/chat/")) {
+                    UUID conversationId = UUID.fromString(destination.substring("/topic/chat/".length()));
+                    UUID userId = resolveWsUserId(accessor);
+                    conversationRepository.findByIdAndBuyerIdOrSellerId(conversationId, userId, userId)
+                            .orElseThrow(() -> new IllegalArgumentException("Sem acesso a esta conversa"));
+                }
+            }
+
+            private UUID resolveWsUserId(StompHeaderAccessor accessor) {
+                java.security.Principal principal = accessor.getUser();
+                if (!(principal instanceof org.springframework.security.core.Authentication auth)
+                        || auth.getName() == null) {
+                    throw new IllegalArgumentException("Sessão WebSocket inválida");
+                }
+                return UUID.fromString(auth.getName());
             }
         });
     }

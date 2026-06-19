@@ -70,7 +70,7 @@ public class ExtendedAuthService {
         user.setPasswordHash(authService.encodePassword(newPassword));
         authToken.setUsedAt(Instant.now());
         authTokenRepository.save(authToken);
-        userRepository.save(user);
+        authService.invalidateAllSessions(user);
     }
 
     @Transactional
@@ -168,11 +168,24 @@ public class ExtendedAuthService {
         return authService.buildAuthResponseForUser(user);
     }
 
+    @Transactional
+    public AuthResponse oauthLoginWithFacebookCode(String code, String redirectUri, SignupSource source) {
+        String accessToken = oauthVerifier.exchangeFacebookCode(code, redirectUri);
+        OAuthRequest request = new OAuthRequest();
+        request.setAccessToken(accessToken);
+        request.setSignupSource(source != null ? source.name().toLowerCase() : SignupSource.WEB.name().toLowerCase());
+        return oauthLogin("facebook", request, source != null ? source : SignupSource.WEB);
+    }
+
     private User mergeOAuthProfile(
             User user,
             OAuthVerifier.OAuthUserInfo info,
             SignupAuthMethod authMethod,
             SignupSource source) {
+        if (user.getPasswordHash() != null && !user.isEmailVerified()) {
+            throw ApiException.conflict(
+                    "Já existe uma conta com este email. Confirme o email ou inicie sessão com palavra-passe.");
+        }
         if (info.name() != null && !info.name().isBlank()
                 && (user.getDisplayName() == null || user.getDisplayName().isBlank())) {
             user.setDisplayName(info.name());

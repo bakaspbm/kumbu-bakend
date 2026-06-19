@@ -4,10 +4,22 @@ spring:
       on-profile: prod
   jpa:
     show-sql: false
+  cache:
+    type: redis
+
+server:
+  error:
+    include-message: never
+    include-stacktrace: never
+    include-binding-errors: never
 
 kumbu:
   jwt:
-    secret: ${KUMBU_JWT_SECRET}  # obrigatório em produção
+    secret: ${KUMBU_JWT_SECRET}
+  cors:
+    allowed-origin-patterns: ${KUMBU_CORS_ORIGIN_PATTERNS:}
+  cache:
+    redis-enabled: true
 
 logging:
   level:
@@ -18,4 +30,10 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

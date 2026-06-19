@@ -28,7 +28,7 @@ public class Conversation {
     @Column(name = "product_id")
     private String productId;
 
-    @Column(name = "buyer_id", nullable = false)
+    @Column(name = "buyer_id")
     private UUID buyerId;
 
     @Column(name = "seller_id", nullable = false)
@@ -72,6 +72,15 @@ public class Conversation {
     @Convert(converter = SupportStatusConverter.class)
     @Column(name = "support_status")
     private SupportStatus supportStatus;
+
+    @Column(name = "guest_name")
+    private String guestName;
+
+    @Column(name = "guest_email")
+    private String guestEmail;
+
+    @Column(name = "guest_access_token")
+    private String guestAccessToken;
 
     @PrePersist
     void onCreate() {

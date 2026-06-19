@@ -19,5 +19,7 @@ public class ChatMessageResponse {
     private Instant createdAt;
     private Instant readAt;
     private String messageKind;
+    private String attachmentUrl;
     private boolean fromSupport;
+    private boolean phoneWarning;
 }

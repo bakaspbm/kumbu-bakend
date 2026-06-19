@@ -2,12 +2,14 @@ package com.kumbu.backend.controller;
 
 
 
+import com.kumbu.backend.dto.user.ChangePasswordRequest;
 import com.kumbu.backend.dto.user.DeliveryAddressRequest;
 
 import com.kumbu.backend.dto.user.SyncCartRequest;
 
 import com.kumbu.backend.dto.user.UpdateProfileRequest;
 
+import com.kumbu.backend.dto.user.UserPublicProfileResponse;
 import com.kumbu.backend.dto.user.UserProfileResponse;
 
 import com.kumbu.backend.service.UserService;
@@ -64,9 +66,9 @@ public class UserController {
 
     @GetMapping("/{id}")
 
-    public UserProfileResponse getProfile(@PathVariable UUID id) {
+    public UserPublicProfileResponse getProfile(@PathVariable UUID id) {
 
-        return userService.getProfile(id);
+        return userService.getPublicProfile(id);
 
     }
 
@@ -142,6 +144,12 @@ public class UserController {
 
 
 
+    @PostMapping("/me/password")
+    public Map<String, String> changePassword(@Valid @RequestBody ChangePasswordRequest request) {
+        userService.changePassword(request.getCurrentPassword(), request.getNewPassword());
+        return Map.of("message", "Palavra-passe actualizada com sucesso.");
+    }
+
     @GetMapping("/me/export")
 
     public Map<String, Object> exportAccount() {
@@ -156,7 +164,9 @@ public class UserController {
 
     public void deleteAccount() {
 
-        accountDataService.deleteAccount();
+        throw com.kumbu.backend.exception.ApiException.badRequest(
+
+                "Para apagar a conta, contacte o suporte Kumbú.");
 
     }
 

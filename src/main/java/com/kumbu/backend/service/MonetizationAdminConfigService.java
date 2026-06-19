@@ -1,5 +1,6 @@
 package com.kumbu.backend.service;
 
+import com.kumbu.backend.config.CacheNames;
 import com.kumbu.backend.domain.entity.MonetizationPaymentProvider;
 import com.kumbu.backend.domain.entity.MonetizationProduct;
 import com.kumbu.backend.domain.entity.MonetizationSettings;
@@ -15,6 +16,7 @@ import com.kumbu.backend.repository.MonetizationProductRepository;
 import com.kumbu.backend.repository.MonetizationSettingsRepository;
 import com.kumbu.backend.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,6 +42,7 @@ public class MonetizationAdminConfigService {
     }
 
     @Transactional
+    @CacheEvict(value = CacheNames.MONETIZATION, allEntries = true)
     public Map<String, Object> updateSettings(AdminUpdateMonetizationSettingsRequest request) {
         MonetizationSettings settings = getSettings();
 
@@ -63,6 +66,7 @@ public class MonetizationAdminConfigService {
     }
 
     @Transactional
+    @CacheEvict(value = CacheNames.MONETIZATION, allEntries = true)
     public Map<String, Object> setChargingEnabled(boolean enabled) {
         MonetizationSettings settings = getSettings();
         settings.setChargingEnabled(enabled);
@@ -197,6 +201,11 @@ public class MonetizationAdminConfigService {
         map.put("gate_min_dau", s.getGateMinDau());
         map.put("gate_min_listings", s.getGateMinListings());
         map.put("gate_min_chats", s.getGateMinChats());
+        map.put("gate_max_dau", s.getGateMaxDau());
+        map.put("gate_max_listings", s.getGateMaxListings());
+        map.put("gate_max_chats", s.getGateMaxChats());
+        map.put("gate_last_ready", s.isGateLastReady());
+        map.put("gate_alert_sent_at", s.getGateAlertSentAt());
         map.put("default_max_listings", s.getDefaultMaxListings());
         map.put("payment_expiry_hours", s.getPaymentExpiryHours());
         map.put("charging_enabled", s.isChargingEnabled());

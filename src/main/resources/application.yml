@@ -2,7 +2,7 @@ spring:
   application:
     name: kumbu-backend
   profiles:
-    active: dev,local
+    active: ${SPRING_PROFILES_ACTIVE:dev}
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/kumbu_db}
     username: ${SPRING_DATASOURCE_USERNAME:postgres}
@@ -33,6 +33,13 @@ spring:
           auth: true
           starttls:
             enable: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2s
+  cache:
+    type: ${KUMBU_CACHE_TYPE:simple}
 
 server:
   port: 8080
@@ -43,16 +50,19 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info
+  health:
+    mail:
+      enabled: false
 
 kumbu:
   jwt:
     secret: ${KUMBU_JWT_SECRET:change-me-in-production-use-at-least-256-bits-secret-key-here}
-    access-token-minutes: 60
-    refresh-token-days: 30
+    access-token-minutes: 15
+    refresh-token-days: 14
   cors:
     allowed-origins: ${KUMBU_CORS_ORIGINS:http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001}
-    allowed-origin-patterns: http://localhost:*,http://127.0.0.1:*
+    allowed-origin-patterns: ${KUMBU_CORS_ORIGIN_PATTERNS:}
   storage:
     base-path: ${KUMBU_STORAGE_PATH:./uploads}
     public-base-url: ${KUMBU_STORAGE_URL:http://localhost:8080/files}
@@ -89,6 +99,11 @@ kumbu:
     facebook-app-id: ${KUMBU_FACEBOOK_APP_ID:}
     facebook-app-secret: ${KUMBU_FACEBOOK_APP_SECRET:}
     facebook-trust-client-profile: ${KUMBU_FACEBOOK_TRUST_CLIENT_PROFILE:false}
+  cache:
+    redis-enabled: ${KUMBU_CACHE_REDIS_ENABLED:false}
+    default-ttl-seconds: 60
+    platform-ttl-seconds: 300
+    admin-ttl-seconds: 120
 
 springdoc:
   api-docs:
@@ -100,3 +115,12 @@ logging:
   level:
     com.kumbu: INFO
     org.springframework.security: WARN
+
+sentry:
+  dsn: ${SENTRY_DSN:}
+  environment: ${SENTRY_ENVIRONMENT:${spring.profiles.active:development}}
+  traces-sample-rate: ${SENTRY_TRACES_SAMPLE_RATE:0.1}
+  send-default-pii: false
+  logging:
+    minimum-event-level: error
+    minimum-breadcrumb-level: info

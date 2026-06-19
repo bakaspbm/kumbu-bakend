@@ -1,5 +1,6 @@
 package com.kumbu.backend.service;
 
+import com.kumbu.backend.config.CacheNames;
 import com.kumbu.backend.domain.entity.AdminAuditLog;
 import com.kumbu.backend.domain.entity.AdminUser;
 import com.kumbu.backend.domain.entity.AppCategorySortFilter;
@@ -42,6 +43,8 @@ import com.kumbu.backend.repository.UserNotificationRepository;
 import com.kumbu.backend.repository.UserRepository;
 import com.kumbu.backend.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -88,12 +91,17 @@ public class AdminManagementService {
     private final AdminAuditLogRepository auditLogRepository;
     private final SecurityUtils securityUtils;
     private final NotificationService notificationService;
+    private final MonetizationGateAlertService gateAlertService;
+    private final AdminIdentityService adminIdentityService;
+    private final AuthService authService;
 
     @Transactional(readOnly = true)
     public Map<String, Object> getUser(UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> ApiException.notFound("User not found"));
-        return toUserMap(user);
+        Map<String, Object> map = toUserMap(user);
+        map.put("identity_verification", adminIdentityService.getVerification(userId));
+        return map;
     }
 
     @Transactional
@@ -111,6 +119,11 @@ public class AdminManagementService {
         if (payload.containsKey("country")) user.setCountry(asString(payload.get("country")));
         if (payload.containsKey("gender")) user.setGender(asString(payload.get("gender")));
         if (payload.containsKey("birth_date")) user.setBirthDate(asLocalDate(payload.get("birth_date")));
+        if (payload.containsKey("seller_verified")) {
+            Object raw = payload.get("seller_verified");
+            boolean verified = raw instanceof Boolean b ? b : "true".equalsIgnoreCase(String.valueOf(raw));
+            user.setSellerVerified(verified);
+        }
 
         User saved = userRepository.save(user);
         createAuditEntry("user.updated", "user", saved.getId().toString(), payload);
@@ -148,6 +161,7 @@ public class AdminManagementService {
         user.setBanReason(reason == null || reason.isBlank() ? "Suspensão administrativa" : reason.trim());
         user.setBannedBy(adminId);
         User saved = userRepository.save(user);
+        authService.invalidateAllSessions(saved);
         createAuditEntry("user.banned", "user", saved.getId().toString(),
                 Map.of("reason", saved.getBanReason(), "until", until));
         return toUserMap(saved);
@@ -372,7 +386,7 @@ public class AdminManagementService {
         report.setReviewedBy(currentActorId());
         ContentReport saved = contentReportRepository.save(report);
         createAuditEntry("report.status_updated", "content_report", saved.getId().toString(),
-                Map.of("status", normalized, "admin_notes", adminNotes));
+                auditPayload("status", normalized, "admin_notes", adminNotes));
         return toReportMap(saved);
     }
 
@@ -388,7 +402,7 @@ public class AdminManagementService {
                 .build();
         UserNotification saved = notificationService.saveAndPush(notification);
         createAuditEntry("report.outcome_notified", "content_report", report.getId().toString(),
-                Map.of("status", status, "admin_note", adminNote, "notification_id", saved.getId()));
+                auditPayload("status", status, "admin_note", adminNote, "notification_id", saved.getId()));
         return Map.of(
                 "report_id", report.getId(),
                 "notification_id", saved.getId(),
@@ -616,6 +630,7 @@ public class AdminManagementService {
     }
 
     @Transactional
+    @CacheEvict(value = CacheNames.PLATFORM, allEntries = true)
     public Map<String, Object> createMarketingBlock(Map<String, Object> payload) {
         AppMarketingBlock block = AppMarketingBlock.builder()
                 .id(required(payload, "id"))
@@ -632,6 +647,7 @@ public class AdminManagementService {
     }
 
     @Transactional
+    @CacheEvict(value = CacheNames.PLATFORM, allEntries = true)
     public Map<String, Object> updateMarketingBlock(String id, Map<String, Object> payload) {
         AppMarketingBlock block = marketingBlockRepository.findById(id)
                 .orElseThrow(() -> ApiException.notFound("Marketing block not found"));
@@ -647,6 +663,7 @@ public class AdminManagementService {
     }
 
     @Transactional
+    @CacheEvict(value = CacheNames.PLATFORM, allEntries = true)
     public void deleteMarketingBlock(String id) {
         AppMarketingBlock block = marketingBlockRepository.findById(id)
                 .orElseThrow(() -> ApiException.notFound("Marketing block not found"));
@@ -668,6 +685,7 @@ public class AdminManagementService {
     }
 
     @Transactional
+    @CacheEvict(value = CacheNames.PLATFORM, allEntries = true)
     public Map<String, Object> upsertLegalDocument(String slug, Map<String, Object> payload) {
         LegalDocument document = legalDocumentRepository.findById(slug).orElseGet(() -> LegalDocument.builder().slug(slug).build());
         if (payload.containsKey("title")) document.setTitle(asString(payload.get("title")));
@@ -685,6 +703,7 @@ public class AdminManagementService {
     }
 
     @Transactional
+    @CacheEvict(value = CacheNames.PLATFORM, allEntries = true)
     public Map<String, Object> createSortFilter(Map<String, Object> payload) {
         AppCategorySortFilter filter = AppCategorySortFilter.builder()
                 .id(required(payload, "id"))
@@ -698,6 +717,7 @@ public class AdminManagementService {
     }
 
     @Transactional
+    @CacheEvict(value = CacheNames.PLATFORM, allEntries = true)
     public Map<String, Object> updateSortFilter(String id, Map<String, Object> payload) {
         AppCategorySortFilter filter = sortFilterRepository.findById(id)
                 .orElseThrow(() -> ApiException.notFound("Sort filter not found"));
@@ -710,6 +730,7 @@ public class AdminManagementService {
     }
 
     @Transactional
+    @CacheEvict(value = CacheNames.PLATFORM, allEntries = true)
     public void deleteSortFilter(String id) {
         AppCategorySortFilter filter = sortFilterRepository.findById(id)
                 .orElseThrow(() -> ApiException.notFound("Sort filter not found"));
@@ -765,6 +786,7 @@ public class AdminManagementService {
     }
 
     @Transactional
+    @CacheEvict(value = CacheNames.PLATFORM, allEntries = true)
     public Map<String, Object> upsertSupportSettings(Map<String, Object> payload) {
         AppSupportSettings settings = supportSettingsRepository.findById("default")
                 .orElseGet(() -> AppSupportSettings.builder().id("default").build());
@@ -864,6 +886,7 @@ public class AdminManagementService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(value = CacheNames.ADMIN_STATS, key = "'dashboard'")
     public Map<String, Object> adminDashboardStats() {
         Instant sevenDaysAgo = Instant.now().minusSeconds(7L * 86400);
         Map<String, Object> overview = new LinkedHashMap<>();
@@ -883,6 +906,7 @@ public class AdminManagementService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(value = CacheNames.ADMIN_STATS, key = "'marketplace'")
     public Map<String, Object> adminDashboardMarketplace() {
         Map<String, Object> stats = Map.of(
                 "activeListings", productRepository.countActiveListings(),
@@ -892,6 +916,7 @@ public class AdminManagementService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(value = CacheNames.ADMIN_STATS, key = "'control'")
     public Map<String, Object> adminControlOverview() {
         long usersTotal = userRepository.count();
         long usersDeleted = userRepository.findAll().stream().filter(u -> u.getDeletedAt() != null).count();
@@ -929,6 +954,7 @@ public class AdminManagementService {
                 .map(this::toUserMap).toList());
         control.put("recentOrders", orderRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(0, 8)).getContent().stream()
                 .map(this::toOrderMap).toList());
+        control.put("growth_gate", gateAlertService.getGateStatusForAdmin());
         return Map.of("items", List.of(control));
     }
 
@@ -968,6 +994,7 @@ public class AdminManagementService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(value = CacheNames.ADMIN_STATS, key = "'analytics:' + #period")
     public Map<String, Object> adminAnalyticsSnapshot(String period) {
         String normalized = period == null || period.isBlank() ? "day" : period.trim().toLowerCase();
         int days = switch (normalized) {
@@ -1140,6 +1167,18 @@ public class AdminManagementService {
         return securityUtils.currentUserId();
     }
 
+    /** Mapa de auditoria que aceita valores null (Map.of não aceita). */
+    private static Map<String, Object> auditPayload(Object... keyValues) {
+        if (keyValues.length % 2 != 0) {
+            throw new IllegalArgumentException("auditPayload requer pares chave/valor");
+        }
+        Map<String, Object> map = new LinkedHashMap<>();
+        for (int i = 0; i < keyValues.length; i += 2) {
+            map.put(String.valueOf(keyValues[i]), keyValues[i + 1]);
+        }
+        return map;
+    }
+
     private Pageable pageRequest(int page, int size, String sortField) {
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), 200);
@@ -1179,6 +1218,9 @@ public class AdminManagementService {
         map.put("banned_by", user.getBannedBy());
         map.put("created_at", user.getCreatedAt());
         map.put("updated_at", user.getUpdatedAt());
+        map.put("email_verified", user.isEmailVerified());
+        map.put("phone_verified", user.isPhoneVerified());
+        map.put("seller_verified", user.isSellerVerified());
         return map;
     }
 
@@ -1192,6 +1234,8 @@ public class AdminManagementService {
         map.put("old_price_label", product.getOldPriceLabel());
         map.put("delivery_text", product.getDeliveryText());
         map.put("description", product.getDescription());
+        map.put("image_url", product.getImageUrl());
+        map.put("image_urls", buildProductImageUrls(product));
         map.put("is_featured", product.isFeatured());
         map.put("is_out_of_stock", product.isOutOfStock());
         map.put("sort_order", product.getSortOrder());
@@ -1202,6 +1246,16 @@ public class AdminManagementService {
         map.put("created_at", product.getCreatedAt());
         map.put("updated_at", product.getUpdatedAt());
         return map;
+    }
+
+    private List<String> buildProductImageUrls(CatalogProduct product) {
+        if (product.getImageUrls() != null && !product.getImageUrls().isEmpty()) {
+            return product.getImageUrls();
+        }
+        if (product.getImageUrl() != null && !product.getImageUrl().isBlank()) {
+            return List.of(product.getImageUrl());
+        }
+        return List.of();
     }
 
     private Map<String, Object> toOrderMap(Order order) {

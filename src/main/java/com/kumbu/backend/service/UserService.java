@@ -3,12 +3,14 @@ package com.kumbu.backend.service;
 import com.kumbu.backend.domain.entity.User;
 import com.kumbu.backend.dto.order.CartItemRequest;
 import com.kumbu.backend.dto.user.DeliveryAddressRequest;
+import com.kumbu.backend.dto.user.UserPublicProfileResponse;
 import com.kumbu.backend.dto.user.UpdateProfileRequest;
 import com.kumbu.backend.dto.user.UserProfileResponse;
 import com.kumbu.backend.exception.ApiException;
 import com.kumbu.backend.repository.UserRepository;
 import com.kumbu.backend.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +28,8 @@ public class UserService {
     private final UserRepository userRepository;
     private final SecurityUtils securityUtils;
     private final ProfileCompletenessService profileCompletenessService;
+    private final AuthService authService;
+    private final PasswordEncoder passwordEncoder;
 
     @Transactional(readOnly = true)
     public UserProfileResponse me() {
@@ -33,10 +37,13 @@ public class UserService {
     }
 
     @Transactional(readOnly = true)
-    public UserProfileResponse getProfile(UUID userId) {
+    public UserPublicProfileResponse getPublicProfile(UUID userId) {
         User user = userRepository.findByIdAndDeletedAtIsNull(userId)
                 .orElseThrow(() -> ApiException.notFound("Utilizador não encontrado"));
-        return toProfile(user);
+        if (user.isBanned()) {
+            throw ApiException.notFound("Utilizador não encontrado");
+        }
+        return toPublicProfile(user);
     }
 
     @Transactional(readOnly = true)
@@ -154,6 +161,19 @@ public class UserService {
     }
 
     @Transactional
+    public void changePassword(String currentPassword, String newPassword) {
+        User user = getCurrentUser();
+        if (user.getPasswordHash() == null || !passwordEncoder.matches(currentPassword, user.getPasswordHash())) {
+            throw ApiException.badRequest("Palavra-passe actual incorrecta");
+        }
+        if (newPassword == null || newPassword.length() < 8) {
+            throw ApiException.badRequest("A nova palavra-passe deve ter pelo menos 8 caracteres");
+        }
+        user.setPasswordHash(authService.encodePassword(newPassword));
+        authService.invalidateAllSessions(user);
+    }
+
+    @Transactional
     public void syncCart(java.util.List<CartItemRequest> cartItems) {
         User user = getCurrentUser();
         user.setCart(new ArrayList<>(cartItems));
@@ -196,6 +216,7 @@ public class UserService {
                 .profileImageUrl(user.getPhotoUrl())
                 .emailVerified(user.isEmailVerified())
                 .phoneVerified(user.isPhoneVerified())
+                .sellerVerified(user.isSellerVerified())
                 .favorites(user.getFavorites())
                 .deliveryAddress(user.getDeliveryAddress())
                 .city(user.getCity())
@@ -208,6 +229,22 @@ public class UserService {
                 .canPublish((Boolean) readiness.get("can_publish"))
                 .missingProfileFields(missing)
                 .cart(user.getCart())
+                .bannedAt(user.getBannedAt())
+                .bannedUntil(user.getBannedUntil())
+                .banReason(user.getBanReason())
+                .accountSuspended(user.isBanned())
+                .build();
+    }
+
+    private UserPublicProfileResponse toPublicProfile(User user) {
+        return UserPublicProfileResponse.builder()
+                .id(user.getId())
+                .fullName(user.getDisplayName())
+                .profileImageUrl(user.getPhotoUrl())
+                .sellerVerified(user.isSellerVerified())
+                .city(user.getCity())
+                .region(user.getRegion())
+                .country(user.getCountry())
                 .build();
     }
 }

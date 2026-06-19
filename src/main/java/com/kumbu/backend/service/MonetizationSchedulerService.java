@@ -18,14 +18,21 @@ public class MonetizationSchedulerService {
 
     private final CatalogProductRepository catalogProductRepository;
     private final ListingPromotionRepository listingPromotionRepository;
-    private final MonetizationMetricsService metricsService;
     private final MonetizationAnalyticsService analyticsService;
+    private final MonetizationGateAlertService gateAlertService;
 
     @Scheduled(cron = "0 0 6 * * *")
     @Transactional
     public void dailyMetricsJob() {
         log.info("Computing daily monetization metrics");
-        metricsService.computeAndStoreToday();
+        gateAlertService.evaluateAndNotify();
+    }
+
+    /** Verifica gate de crescimento de hora a hora (notifica superadmin na transição). */
+    @Scheduled(cron = "0 0 * * * *")
+    @Transactional
+    public void hourlyGateCheckJob() {
+        gateAlertService.evaluateAndNotify();
     }
 
     @Scheduled(cron = "0 0 8 * * *")
@@ -42,7 +49,7 @@ public class MonetizationSchedulerService {
     @Transactional
     public void weeklyMondayReviewJob() {
         log.info("Weekly monetization review — ver GET /admin/monetization/overview");
-        metricsService.computeAndStoreToday();
+        gateAlertService.evaluateAndNotify();
     }
 
     @Scheduled(cron = "0 0 * * * *")

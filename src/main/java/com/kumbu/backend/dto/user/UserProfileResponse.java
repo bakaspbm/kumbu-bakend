@@ -3,6 +3,7 @@ package com.kumbu.backend.dto.user;
 import lombok.Builder;
 import lombok.Data;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -17,6 +18,7 @@ public class UserProfileResponse {
     private String profileImageUrl;
     private boolean emailVerified;
     private boolean phoneVerified;
+    private boolean sellerVerified;
     private List<String> favorites;
     private Object deliveryAddress;
     private String city;
@@ -29,4 +31,8 @@ public class UserProfileResponse {
     private boolean canPublish;
     private List<String> missingProfileFields;
     private java.util.List<Object> cart;
+    private Instant bannedAt;
+    private Instant bannedUntil;
+    private String banReason;
+    private boolean accountSuspended;
 }

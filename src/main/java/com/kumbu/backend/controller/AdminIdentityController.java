@@ -1,5 +1,6 @@
 package com.kumbu.backend.controller;
 
+import com.kumbu.backend.dto.admin.AdminIdentityDocumentReviewRequest;
 import com.kumbu.backend.dto.admin.AdminIdentityReviewRequest;
 import com.kumbu.backend.service.AdminIdentityService;
 import jakarta.validation.Valid;
@@ -61,5 +62,22 @@ public class AdminIdentityController {
             @PathVariable UUID userId,
             @Valid @RequestBody AdminIdentityReviewRequest request) {
         return adminIdentityService.reject(userId, request.getNote());
+    }
+
+    @PostMapping("/users/{userId}/documents/{side}/approve")
+    public Map<String, Object> approveDocument(
+            @PathVariable UUID userId,
+            @PathVariable String side,
+            @Valid @RequestBody(required = false) AdminIdentityReviewRequest request) {
+        String note = request != null ? request.getNote() : null;
+        return adminIdentityService.approveDocument(userId, side, note);
+    }
+
+    @PostMapping("/users/{userId}/documents/{side}/reject")
+    public Map<String, Object> rejectDocument(
+            @PathVariable UUID userId,
+            @PathVariable String side,
+            @Valid @RequestBody AdminIdentityDocumentReviewRequest request) {
+        return adminIdentityService.rejectDocument(userId, side, request.getNote());
     }
 }

@@ -1,5 +1,6 @@
 package com.kumbu.backend.service;
 
+import com.kumbu.backend.config.CacheNames;
 import com.kumbu.backend.domain.entity.MonetizationCategoryStrategy;
 import com.kumbu.backend.domain.entity.MonetizationFeature;
 import com.kumbu.backend.domain.entity.MonetizationProduct;
@@ -12,6 +13,8 @@ import com.kumbu.backend.repository.MonetizationFeatureRepository;
 import com.kumbu.backend.repository.MonetizationProductRepository;
 import com.kumbu.backend.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,6 +37,7 @@ public class MonetizationCategoryService {
     private final MonetizationVipTrackingService vipTrackingService;
 
     @Transactional(readOnly = true)
+    @Cacheable(value = CacheNames.MONETIZATION, key = "'category:' + #categoryId")
     public Map<String, Object> getCategoryMonetization(String categoryId) {
         categoryRepository.findById(categoryId)
                 .orElseThrow(() -> ApiException.notFound("Categoria não encontrada"));
@@ -115,6 +119,7 @@ public class MonetizationCategoryService {
     }
 
     @Transactional
+    @CacheEvict(value = CacheNames.MONETIZATION, allEntries = true)
     public Map<String, Object> updateStrategy(String categoryId, AdminUpdateCategoryStrategyRequest request) {
         MonetizationCategoryStrategy strategy = strategyRepository.findById(categoryId)
                 .orElseThrow(() -> ApiException.notFound("Estratégia não encontrada"));

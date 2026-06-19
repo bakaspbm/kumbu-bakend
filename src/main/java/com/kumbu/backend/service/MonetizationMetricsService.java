@@ -1,11 +1,14 @@
 package com.kumbu.backend.service;
 
+import com.kumbu.backend.config.CacheNames;
 import com.kumbu.backend.domain.entity.MonetizationDailyMetrics;
 import com.kumbu.backend.repository.CatalogProductRepository;
 import com.kumbu.backend.repository.ChatMessageRepository;
 import com.kumbu.backend.repository.MonetizationDailyMetricsRepository;
 import com.kumbu.backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +29,7 @@ public class MonetizationMetricsService {
     private final MonetizationAdminConfigService configService;
 
     @Transactional
+    @CacheEvict(value = CacheNames.MONETIZATION, allEntries = true)
     public Map<String, Object> computeAndStoreToday() {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         Instant startOfDay = today.atStartOfDay().toInstant(ZoneOffset.UTC);
@@ -48,6 +52,7 @@ public class MonetizationMetricsService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(value = CacheNames.MONETIZATION, key = "'metrics:current'")
     public Map<String, Object> getCurrentMetrics() {
         return metricsRepository.findFirstByOrderByMetricDateDesc()
                 .map(this::toMap)
@@ -55,6 +60,7 @@ public class MonetizationMetricsService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(value = CacheNames.MONETIZATION, key = "'gate'")
     public Map<String, Object> checkMonetizationGate() {
         var settings = configService.getSettings();
         Map<String, Object> metrics = getCurrentMetrics();
@@ -72,28 +78,44 @@ public class MonetizationMetricsService {
         result.put("metrics", metrics);
         result.put("requirements", Map.of(
                 "min_dau", settings.getGateMinDau(),
+                "max_dau", settings.getGateMaxDau(),
                 "min_listings", settings.getGateMinListings(),
-                "min_chats_per_day", settings.getGateMinChats()
+                "max_listings", settings.getGateMaxListings(),
+                "min_chats_per_day", settings.getGateMinChats(),
+                "max_chats_per_day", settings.getGateMaxChats()
         ));
         result.put("checks", Map.of(
                 "dau_ok", dauOk,
                 "dau_current", dau,
+                "dau_progress_pct", progressPct(dau, settings.getGateMinDau(), settings.getGateMaxDau()),
                 "listings_ok", listingsOk,
                 "listings_current", listings,
+                "listings_progress_pct", progressPct(listings, settings.getGateMinListings(), settings.getGateMaxListings()),
                 "chats_ok", chatsOk,
-                "chats_current", chats
+                "chats_current", chats,
+                "chats_progress_pct", progressPct(chats, settings.getGateMinChats(), settings.getGateMaxChats())
         ));
         result.put("message", gateReady
-                ? "Métricas atingidas! Pode solicitar activação de monetização no admin."
+                ? "Métricas mínimas atingidas! Analise no admin antes de activar cobrança."
                 : "Ainda não atingiu os gatilhos mínimos para começar a cobrar.");
         result.put("charging_enabled", settings.isChargingEnabled());
         result.put("can_charge", gateReady && settings.isChargingEnabled());
+        result.put("listing_limits_enforced", settings.isChargingEnabled());
+        result.put("policy", settings.isChargingEnabled()
+                ? "Limites de anúncios activos — planos VIP aplicam-se."
+                : "Sem limites de anúncios — publicação gratuita até activar cobrança no admin.");
         result.put("recommendation", !gateReady
                 ? "NÃO COBRAR — crescer volume primeiro"
                 : !settings.isChargingEnabled()
-                ? "Gate OK — activar cobrança manualmente quando estiver pronto"
+                ? "Gate OK — superadmin deve analisar e activar cobrança manualmente"
                 : "Cobrança activa");
         return result;
+    }
+
+    private static int progressPct(int current, int min, int max) {
+        if (current >= min) return 100;
+        if (min <= 0) return 0;
+        return Math.min(99, (int) Math.round((current * 100.0) / min));
     }
 
     private Map<String, Object> toMap(MonetizationDailyMetrics m) {

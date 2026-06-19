@@ -17,11 +17,12 @@ public class ChatWebSocketController {
 
     @MessageMapping("/chat/{conversationId}/send")
     public void send(@DestinationVariable UUID conversationId, WsMessage payload) {
-        chatService.sendMessage(conversationId, payload.getBody());
+        chatService.sendMessage(conversationId, payload.getBody(), payload.getAttachmentUrl());
     }
 
     @Data
     public static class WsMessage {
         private String body;
+        private String attachmentUrl;
     }
 }

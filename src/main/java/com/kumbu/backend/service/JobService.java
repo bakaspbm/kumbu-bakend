@@ -2,6 +2,7 @@ package com.kumbu.backend.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kumbu.backend.config.CacheNames;
 import com.kumbu.backend.domain.entity.*;
 import com.kumbu.backend.domain.enums.DealStatus;
 import com.kumbu.backend.domain.enums.ListingKind;
@@ -13,6 +14,7 @@ import com.kumbu.backend.security.SecurityUtils;
 import lombok.Builder;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -87,6 +89,9 @@ public class JobService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(
+            value = CacheNames.JOBS,
+            key = "T(java.util.Objects).hash(#query, #province, #municipality, #contractType, #sector, #remote)")
     public List<ListingResponse> listActiveJobs(
             String query,
             String province,
@@ -117,6 +122,13 @@ public class JobService {
         CatalogProduct job = productRepository.findByIdAndDeletedAtIsNull(jobId)
                 .filter(p -> p.getListingKind() == ListingKind.JOB)
                 .orElseThrow(() -> ApiException.notFound("Emprego não encontrado"));
+
+        if (job.getJobListingStatus() != null && !"active".equals(job.getJobListingStatus())) {
+            throw ApiException.badRequest("Esta vaga já foi preenchida ou está fechada");
+        }
+        if (job.isOutOfStock()) {
+            throw ApiException.badRequest("Esta vaga já não está disponível");
+        }
 
         if (applicationRepository.findByJobIdAndApplicantId(jobId, applicantId).isPresent()) {
             throw ApiException.conflict("Já se candidatou a este emprego");

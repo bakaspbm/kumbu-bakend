@@ -2,6 +2,7 @@ package com.kumbu.backend.exception;
 
 
 
+import io.sentry.Sentry;
 import jakarta.validation.ConstraintViolation;
 
 import jakarta.validation.ConstraintViolationException;
@@ -166,6 +167,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGeneric(Exception ex) {
         log.error("Unhandled exception", ex);
+        Sentry.captureException(ex);
         return ResponseEntity.internalServerError()
 
                 .body(errorBody("INTERNAL_ERROR", "Erro interno do servidor"));

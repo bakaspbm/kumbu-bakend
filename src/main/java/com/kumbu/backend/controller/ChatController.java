@@ -92,7 +92,7 @@ public class ChatController {
 
     public ChatMessageResponse sendMessage(@PathVariable UUID id, @Valid @RequestBody SendMessageRequest request) {
 
-        return chatService.sendMessage(id, request.getBody());
+        return chatService.sendMessage(id, request.getBody(), request.getAttachmentUrl());
 
     }
 

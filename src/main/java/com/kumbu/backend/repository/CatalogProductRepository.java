@@ -22,7 +22,14 @@ public interface CatalogProductRepository extends JpaRepository<CatalogProduct, 
             """)
     Page<CatalogProduct> searchAll(@Param("q") String q, Pageable pageable);
 
-    Page<CatalogProduct> findByDeletedAtIsNullAndFeaturedTrue(Pageable pageable);
+    @Query("""
+            SELECT p FROM CatalogProduct p
+            WHERE p.deletedAt IS NULL
+              AND p.featured = true
+              AND p.outOfStock = false
+              AND (p.jobListingStatus IS NULL OR p.jobListingStatus = 'active')
+            """)
+    Page<CatalogProduct> findPublicFeatured(Pageable pageable);
 
     Page<CatalogProduct> findByDeletedAtIsNullAndCategoryId(String categoryId, Pageable pageable);
 
@@ -33,6 +40,8 @@ public interface CatalogProductRepository extends JpaRepository<CatalogProduct, 
     @Query("""
             SELECT p FROM CatalogProduct p
             WHERE p.deletedAt IS NULL
+              AND p.outOfStock = false
+              AND (p.jobListingStatus IS NULL OR p.jobListingStatus = 'active')
               AND (:categoryId IS NULL OR p.categoryId = :categoryId)
               AND (:subcategoryId IS NULL OR p.subcategoryId = :subcategoryId)
               AND (:sellerId IS NULL OR p.sellerId = :sellerId)
